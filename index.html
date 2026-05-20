@@ -1,0 +1,4060 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Server Playtime Championship</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a12; --bg2: #11111e; --bg3: #181828; --bg4: #20203a;
+    --border: #2a2a45; --border2: #3a3a55;
+    --accent: #ff3c78; --accent2: #7b2fff;
+    --gold: #ffd700; --silver: #c0c0c0; --bronze: #cd7f32;
+    --text: #e8e4f0; --muted: #7a7a9a;
+    --green: #00e5a0; --pink: #ff6eb4; --blue: #4db8ff;
+    --purple: #c084fc; --orange: #ff9f43; --red: #ff5c5c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; }
+  body { background: var(--bg); color: var(--text); font-family: 'Space Mono', monospace; min-height: 100vh; overflow-x: hidden; }
+  /* On larger screens, scale the whole UI up a touch by bumping the root font size (rem units cascade from html) */
+  @media (min-width: 768px) {
+    html { font-size: 17px; }
+    .container { padding: 2rem 1.5rem; }
+  }
+  @media (min-width: 1024px) {
+    html { font-size: 18px; }
+  }
+  body::before { content: ''; position: fixed; inset: 0; background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px); pointer-events: none; z-index: 999; }
+  .noise { position: fixed; inset: 0; opacity: 0.03; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); pointer-events: none; z-index: 998; }
+  .blob { position: fixed; border-radius: 50%; filter: blur(80px); pointer-events: none; z-index: 0; }
+  .blob1 { width: 400px; height: 400px; background: rgba(123,47,255,0.12); top: -100px; right: -100px; }
+  .blob2 { width: 350px; height: 350px; background: rgba(255,60,120,0.1); bottom: -50px; left: -80px; }
+  .container { max-width: 900px; margin: 0 auto; padding: 1.5rem 1.2rem; position: relative; z-index: 1; }
+
+  header { text-align: center; margin-bottom: 1.5rem; }
+  .game-badge { display: inline-block; font-family: 'Orbitron', monospace; font-size: 0.6rem; letter-spacing: 0.3em; text-transform: uppercase; color: var(--accent); border: 1px solid var(--accent); padding: 0.3rem 1rem; margin-bottom: 0.8rem; animation: pulse-border 2s ease-in-out infinite; }
+  @keyframes pulse-border { 0%, 100% { box-shadow: 0 0 8px rgba(255,60,120,0.3); } 50% { box-shadow: 0 0 20px rgba(255,60,120,0.7); } }
+  h1 { font-family: 'Orbitron', monospace; font-size: clamp(1.8rem, 6vw, 3rem); font-weight: 900; line-height: 1.15; letter-spacing: -0.02em; background: linear-gradient(135deg, #fff 0%, var(--pink) 50%, var(--accent2) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 0.6rem; padding-bottom: 0.1rem; }
+  .subtitle { color: var(--muted); font-size: 0.75rem; letter-spacing: 0.1em; }
+
+  .auth-bar { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 0.9rem; background: var(--bg2); border: 1px solid var(--border); margin-bottom: 1rem; font-size: 0.75rem; }
+  .auth-user { display: flex; align-items: center; gap: 0.5rem; }
+  .auth-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+  .auth-dot.admin { background: var(--gold); box-shadow: 0 0 8px var(--gold); }
+  .auth-username { font-weight: 700; }
+  .auth-role { color: var(--muted); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; }
+
+  .countdown { background: var(--bg2); border: 1px solid var(--border); padding: 0.8rem 1rem; margin-bottom: 1rem; display: grid; grid-template-columns: max-content 1fr; align-items: center; gap: 1rem; }
+  .countdown-label { font-size: 0.66rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
+  .countdown-time { font-family: 'Orbitron', monospace; font-size: 1rem; color: var(--gold); letter-spacing: 0.1em; font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; white-space: nowrap; width: 16ch; display: inline-block; }
+  .game-progress { min-width: 0; }
+  .progress-bar { height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; margin-top: 0.4rem; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent2), var(--accent)); border-radius: 3px; transition: width 1s ease; }
+
+  .daily-card { background: var(--bg2); border: 1px solid rgba(255,215,0,0.3); padding: 0.8rem 1rem; margin-bottom: 1rem; position: relative; overflow: hidden; }
+  .daily-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--gold), var(--orange), var(--gold)); background-size: 200%; animation: shimmer 3s linear infinite; }
+  .daily-card-title { display: flex; align-items: flex-start; gap: 0.6rem; margin-bottom: 0.7rem; padding-bottom: 0.7rem; border-bottom: 1px solid var(--border); }
+  .daily-card-icon { font-size: 1.3rem; line-height: 1; flex-shrink: 0; padding-top: 0.1rem; }
+  .daily-card-title-text { flex: 1; min-width: 0; }
+  .daily-card-heading { font-family: 'Orbitron', monospace; font-size: 0.85rem; font-weight: 700; color: var(--gold); letter-spacing: 0.05em; line-height: 1.2; }
+  .daily-card-subheading { font-size: 0.72rem; color: var(--muted); margin-top: 0.2rem; line-height: 1.45; }
+  .daily-podium-label { font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.4rem; margin-top: 0.2rem; }
+
+  /* How-to card on Home tab */
+  .howto-card { background: var(--bg2); border: 1px solid var(--border); padding: 0.9rem 1rem; margin-bottom: 1rem; position: relative; overflow: hidden; }
+  .howto-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--accent), var(--accent2)); background-size: 200%; animation: shimmer 4s linear infinite; opacity: 0.7; }
+  .howto-title { display: flex; align-items: flex-start; gap: 0.7rem; margin-bottom: 0.9rem; padding-bottom: 0.8rem; border-bottom: 1px solid var(--border); }
+  .howto-icon { font-size: 1.4rem; line-height: 1; flex-shrink: 0; padding-top: 0.05rem; }
+  .howto-heading { font-family: 'Orbitron', monospace; font-size: 0.9rem; font-weight: 700; color: var(--text); letter-spacing: 0.05em; line-height: 1.2; }
+  .howto-sub { font-size: 0.7rem; color: var(--muted); margin-top: 0.25rem; line-height: 1.5; }
+  .howto-list { display: flex; flex-direction: column; gap: 0.4rem; }
+  .howto-row {
+    display: grid; grid-template-columns: 2rem 1fr auto; gap: 0.6rem; align-items: center;
+    padding: 0.6rem 0.7rem; background: var(--bg3); border: 1px solid transparent;
+    cursor: pointer; transition: all 0.15s; min-width: 0;
+  }
+  .howto-row:hover { border-color: var(--border2); transform: translateX(2px); }
+  .howto-row.no-tap { cursor: default; }
+  .howto-row.no-tap:hover { transform: none; }
+  .howto-row-icon {
+    font-family: 'Orbitron', monospace; font-size: 0.95rem; font-weight: 700;
+    color: var(--accent); text-align: center; line-height: 1;
+  }
+  .howto-row-text { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+  .howto-row-text b { font-size: 0.85rem; color: var(--text); font-weight: 700; }
+  .howto-row-text span { font-size: 0.72rem; color: var(--muted); line-height: 1.45; }
+  .howto-row-arrow {
+    font-family: 'Orbitron', monospace; color: var(--muted); font-size: 0.9rem;
+    transition: transform 0.15s, color 0.15s;
+  }
+  .howto-row:not(.no-tap):hover .howto-row-arrow { color: var(--accent); transform: translateX(3px); }
+  .daily-header { display: grid; grid-template-columns: max-content 1fr; gap: 1rem; align-items: flex-start; margin-bottom: 0.8rem; }
+  .daily-prizes { text-align: right; min-width: 0; }
+  .daily-time { font-family: 'Orbitron', monospace; font-size: 1rem; color: var(--gold); letter-spacing: 0.08em; font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; width: 8ch; display: inline-block; }
+  .daily-prize-values { font-family: 'Orbitron', monospace; font-size: 0.8rem; color: var(--gold); letter-spacing: 0.05em; }
+  .daily-podium { display: flex; flex-direction: column; gap: 0.3rem; }
+  .daily-podium-row { display: grid; grid-template-columns: 1.5rem 1fr auto auto; gap: 0.5rem; align-items: center; padding: 0.4rem 0.5rem; background: var(--bg3); font-size: 0.75rem; }
+  .daily-podium-row.me { background: rgba(0,229,160,0.05); border-left: 2px solid var(--green); }
+  .daily-podium-rank { font-family: 'Orbitron', monospace; font-size: 0.85rem; font-weight: 700; }
+  .daily-podium-rank.r1 { color: var(--gold); }
+  .daily-podium-rank.r2 { color: var(--silver); }
+  .daily-podium-rank.r3 { color: var(--bronze); }
+  .daily-podium-name { font-weight: 700; }
+  .daily-podium-mins { color: var(--muted); font-size: 0.7rem; font-family: 'Orbitron', monospace; }
+  .daily-podium-pts { color: var(--gold); font-family: 'Orbitron', monospace; font-weight: 700; font-size: 0.7rem; white-space: nowrap; }
+  .daily-empty { color: var(--muted); font-size: 0.7rem; padding: 0.6rem; text-align: center; }
+
+  .tabs {
+    display: flex; margin-bottom: 1.2rem;
+    background: var(--bg2);
+    border: 1px solid var(--border2);
+    overflow: hidden; overflow-x: auto;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    position: relative;
+  }
+  .tabs::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    background-size: 200% 100%;
+    opacity: 0.5;
+  }
+  .tab {
+    flex: 1; padding: 0.75rem 0.4rem;
+    background: transparent; border: none; color: var(--muted);
+    font-family: 'Orbitron', monospace; font-size: 0.66rem; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer;
+    transition: all 0.2s; border-right: 1px solid var(--border);
+    position: relative; white-space: nowrap;
+    display: flex; flex-direction: column; align-items: center; gap: 0.25rem;
+    min-width: 0;
+  }
+  .tab-icon { font-size: 1.05rem; line-height: 1; opacity: 0.8; transition: opacity 0.2s, transform 0.2s; }
+  .tab-label { line-height: 1; font-size: 0.64rem; }
+  .tab:last-child { border-right: none; }
+  .tab:hover { color: var(--text); background: rgba(255,255,255,0.02); }
+  .tab:hover .tab-icon { opacity: 1; transform: scale(1.05); }
+  .tab.active {
+    background: var(--bg3); color: var(--text);
+  }
+  .tab.active .tab-icon { opacity: 1; }
+  .tab.active::after {
+    content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+  }
+
+  .leaderboard { display: flex; flex-direction: column; gap: 0.5rem; }
+  .entry { background: var(--bg2); border: 1px solid var(--border); padding: 0.7rem 0.7rem; display: grid; grid-template-columns: 2rem 1fr auto; align-items: center; gap: 0.5rem; position: relative; overflow: hidden; transition: border-color 0.2s, transform 0.15s; }
+  .entry > div:nth-child(2) { min-width: 0; }
+  .entry:hover { border-color: rgba(255,60,120,0.3); transform: translateX(3px); }
+  .entry.top1 { border-color: rgba(255,215,0,0.4); }
+  .entry.top2 { border-color: rgba(192,192,192,0.3); }
+  .entry.top3 { border-color: rgba(205,127,50,0.3); }
+  .entry.me { border-color: rgba(0,229,160,0.5); background: rgba(0,229,160,0.04); }
+  .entry.top1::before { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(255,215,0,0.05), transparent 60%); pointer-events: none; }
+  .rank { font-family: 'Orbitron', monospace; font-size: 0.95rem; font-weight: 700; text-align: center; }
+  .rank.r1 { color: var(--gold); }
+  .rank.r2 { color: var(--silver); }
+  .rank.r3 { color: var(--bronze); }
+  .rank.rn { color: var(--muted); font-size: 0.8rem; }
+  .username { font-size: 0.85rem; font-weight: 700; word-break: break-word; }
+  .me-tag { font-size: 0.55rem; color: var(--green); letter-spacing: 0.12em; margin-left: 0.3rem; }
+  .user-meta { display: flex; gap: 0.5rem; margin-top: 0.25rem; font-size: 0.72rem; color: var(--muted); flex-wrap: wrap; }
+  .user-meta b { color: var(--text); font-weight: 700; }
+  .time-display { text-align: right; white-space: nowrap; }
+  .time-hours { font-family: 'Orbitron', monospace; font-size: 0.95rem; font-weight: 700; color: var(--green); }
+  .entry.top1 .time-hours { color: var(--gold); }
+  .time-sub { font-size: 0.66rem; color: var(--muted); letter-spacing: 0.05em; }
+
+  .cat-section { margin-bottom: 1.5rem; }
+  .cat-header { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.7rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
+  .cat-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .cat-title { font-family: 'Orbitron', monospace; font-size: 0.7rem; letter-spacing: 0.15em; text-transform: uppercase; }
+  .cat-count { font-size: 0.68rem; color: var(--muted); margin-left: auto; }
+  .cat-desc { font-size: 0.74rem; color: var(--muted); margin-bottom: 0.6rem; line-height: 1.45; }
+  .bonus-badge { font-size: 0.68rem; color: var(--gold); background: rgba(255,215,0,0.06); border: 1px solid rgba(255,215,0,0.2); padding: 0.4rem 0.6rem; margin-bottom: 0.6rem; letter-spacing: 0.03em; line-height: 1.4; }
+  .bonus-badge b { color: var(--gold); }
+
+  .timer-panel { background: var(--bg2); border: 1px solid var(--border); padding: 1.5rem 1rem; text-align: center; position: relative; overflow: hidden; }
+  .timer-panel::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--accent2), var(--accent), var(--accent2)); background-size: 200%; animation: shimmer 2s linear infinite; }
+  @keyframes shimmer { 0% { background-position: 0% center; } 100% { background-position: 200% center; } }
+
+  .rule-reminder { background: rgba(255,159,67,0.08); border: 1px solid rgba(255,159,67,0.3); padding: 0.7rem 0.9rem; margin-bottom: 1.2rem; font-size: 0.75rem; color: var(--orange); line-height: 1.5; text-align: left; }
+  .field-label { font-size: 0.66rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.5rem; text-align: left; display: block; }
+
+  .mode-select { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.4rem; margin-bottom: 1rem; }
+  .mode-btn { padding: 0.7rem 0.3rem; background: var(--bg3); border: 1px solid var(--border); color: var(--muted); font-family: 'Orbitron', monospace; font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 0.3rem; font-weight: 700; }
+  .mode-btn:hover { border-color: var(--border2); }
+  .mode-btn.selected.denial { border-color: var(--blue); color: var(--blue); background: rgba(77,184,255,0.08); }
+  .mode-btn.selected.orgasm { border-color: var(--pink); color: var(--pink); background: rgba(255,110,180,0.08); }
+  .mode-btn.selected.tease { border-color: var(--orange); color: var(--orange); background: rgba(255,159,67,0.08); }
+  .mode-icon { font-size: 1.2rem; }
+
+  .toy-section { margin-bottom: 1rem; text-align: left; }
+  .toy-toggle { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; cursor: pointer; }
+  .toy-toggle input { width: 16px; height: 16px; accent-color: var(--purple); cursor: pointer; }
+  .toy-toggle-label { font-size: 0.75rem; }
+  .toy-select { width: 100%; padding: 0.6rem; background: var(--bg3); border: 1px solid var(--border); color: var(--text); font-family: 'Space Mono', monospace; font-size: 0.85rem; cursor: pointer; -webkit-appearance: menulist; appearance: menulist; }
+  .toy-select:disabled { opacity: 0.4; cursor: not-allowed; }
+  .toy-select option { background: #ffffff; color: #000000; padding: 0.5rem; }
+
+  .big-timer { font-family: 'Orbitron', monospace; font-size: clamp(2.5rem, 11vw, 4.5rem); font-weight: 900; letter-spacing: 0.05em; line-height: 1; margin: 1rem 0 0.4rem; color: var(--green); text-shadow: 0 0 30px rgba(0,229,160,0.3); transition: color 0.3s; font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; width: 8ch; display: inline-block; }
+  .big-timer.running { animation: timer-glow 1s ease-in-out infinite; }
+  .big-timer.paused { color: var(--orange); text-shadow: 0 0 20px rgba(255,159,67,0.4); }
+  @keyframes timer-glow { 0%, 100% { text-shadow: 0 0 20px rgba(0,229,160,0.3); } 50% { text-shadow: 0 0 40px rgba(0,229,160,0.7), 0 0 80px rgba(0,229,160,0.3); } }
+  .timer-status { font-size: 0.7rem; color: var(--muted); letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 1.2rem; min-height: 1.2em; }
+  .timer-status.live { color: var(--accent); animation: blink 1.2s step-end infinite; }
+  .timer-status.paused-status { color: var(--orange); }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  .live-counters { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 1.2rem; }
+  .counter-card { background: var(--bg3); border: 1px solid var(--border); padding: 0.7rem; display: flex; flex-direction: column; align-items: center; gap: 0.3rem; }
+  .counter-card.disabled { opacity: 0.35; }
+  .counter-label { font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .counter-val { font-family: 'Orbitron', monospace; font-size: 1.6rem; font-weight: 900; }
+  .counter-val.edges { color: var(--blue); }
+  .counter-val.orgs { color: var(--pink); }
+  .counter-btn { width: 100%; padding: 0.5rem; background: transparent; border: 1px solid var(--border2); color: var(--text); font-family: 'Orbitron', monospace; font-size: 0.7rem; cursor: pointer; transition: all 0.15s; font-weight: 700; letter-spacing: 0.1em; }
+  .counter-btn:hover:not(:disabled) { background: var(--bg4); transform: scale(1.02); }
+  .counter-btn:active:not(:disabled) { transform: scale(0.97); }
+  .counter-btn:disabled { cursor: not-allowed; opacity: 0.5; }
+  .counter-btn.edge:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+  .counter-btn.org:hover:not(:disabled) { border-color: var(--pink); color: var(--pink); }
+
+  .timer-controls { display: flex; gap: 0.6rem; justify-content: center; margin-bottom: 1.2rem; flex-wrap: wrap; }
+  .btn { padding: 0.7rem 1.5rem; font-family: 'Orbitron', monospace; font-size: 0.7rem; letter-spacing: 0.15em; text-transform: uppercase; cursor: pointer; border: 1px solid; transition: all 0.15s; font-weight: 700; }
+  .btn-start { background: var(--accent); border-color: var(--accent); color: white; box-shadow: 0 0 20px rgba(255,60,120,0.3); }
+  .btn-start:hover { box-shadow: 0 0 30px rgba(255,60,120,0.6); transform: translateY(-1px); }
+  .btn-pause { background: var(--orange); border-color: var(--orange); color: var(--bg); }
+  .btn-pause:hover { box-shadow: 0 0 20px rgba(255,159,67,0.6); }
+  .btn-resume { background: var(--green); border-color: var(--green); color: var(--bg); }
+  .btn-resume:hover { box-shadow: 0 0 20px rgba(0,229,160,0.6); }
+  .btn-stop { background: transparent; border-color: var(--muted); color: var(--muted); }
+  .btn-stop:hover { border-color: var(--text); color: var(--text); }
+  .btn-submit { background: var(--green); border-color: var(--green); color: var(--bg); box-shadow: 0 0 20px rgba(0,229,160,0.3); }
+  .btn-submit:hover { box-shadow: 0 0 30px rgba(0,229,160,0.6); }
+  .btn-secondary { background: transparent; border-color: var(--border2); color: var(--text); }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-danger { background: transparent; border-color: var(--red); color: var(--red); }
+  .btn-danger:hover { background: var(--red); color: white; }
+  .btn-small { padding: 0.45rem 0.85rem; font-size: 0.66rem; }
+
+  .manual-section { margin-top: 1.5rem; padding-top: 1.2rem; border-top: 1px solid var(--border); }
+  .section-title { font-family: 'Orbitron', monospace; font-size: 0.74rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.8rem; text-align: left; }
+  .manual-form { display: flex; flex-direction: column; gap: 0.7rem; text-align: left; }
+  .input-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+  .input { padding: 0.6rem; background: var(--bg3); border: 1px solid var(--border); color: var(--text); font-family: 'Space Mono', monospace; font-size: 0.85rem; width: 100%; }
+  .input:focus { outline: none; border-color: var(--accent); }
+  .input option { background: #ffffff; color: #000000; padding: 0.5rem; }
+  select.input { -webkit-appearance: menulist; appearance: menulist; }
+
+  .session-history { margin-top: 1.5rem; padding-top: 1.2rem; border-top: 1px solid var(--border); text-align: left; }
+  .history-item { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0.8rem; padding: 0.6rem 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.7rem; }
+  .history-item:hover { background: rgba(255,255,255,0.02); }
+  .history-mode { font-family: 'Orbitron', monospace; font-size: 0.68rem; letter-spacing: 0.1em; }
+  .history-mode.denial { color: var(--blue); }
+  .history-mode.orgasm { color: var(--pink); }
+  .history-meta { color: var(--muted); font-size: 0.68rem; margin-top: 0.2rem; }
+  .history-duration { color: var(--green); font-family: 'Orbitron', monospace; font-weight: 700; }
+
+  .rules-section { background: var(--bg2); border: 1px solid var(--border); padding: 1.5rem; }
+  .rules-section h2 { font-family: 'Orbitron', monospace; font-size: 0.85rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--accent); margin-bottom: 1rem; }
+  .rules-section h3 { font-family: 'Orbitron', monospace; font-size: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text); margin-top: 1.2rem; margin-bottom: 0.5rem; }
+  .rules-section p { font-size: 0.8rem; line-height: 1.6; margin-bottom: 0.6rem; color: var(--text); }
+  .rules-section ul { padding-left: 1.2rem; font-size: 0.8rem; line-height: 1.7; }
+  .rules-section li { margin-bottom: 0.3rem; }
+  .key-rule { background: rgba(255,60,120,0.08); border-left: 3px solid var(--accent); padding: 0.8rem 1rem; margin: 1rem 0; font-size: 0.85rem; line-height: 1.5; }
+  .key-rule b { color: var(--accent); }
+
+  .admin-warn { background: rgba(255,215,0,0.08); border: 1px solid rgba(255,215,0,0.3); padding: 0.8rem 1rem; margin-bottom: 1rem; font-size: 0.7rem; color: var(--gold); text-align: center; letter-spacing: 0.05em; }
+  .admin-section { background: var(--bg2); border: 1px solid var(--border); padding: 1rem; margin-bottom: 1rem; }
+  .admin-action-bar { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .admin-user-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 0.5rem; padding: 0.6rem; border-bottom: 1px solid var(--border); font-size: 0.75rem; }
+  .admin-user-row:last-child { border-bottom: none; }
+  .admin-user-name { font-weight: 700; }
+  .admin-user-name.banned { color: var(--red); text-decoration: line-through; opacity: 0.6; }
+  .admin-user-time { color: var(--muted); font-size: 0.65rem; font-family: 'Orbitron', monospace; }
+  .admin-user-role { font-size: 0.55rem; letter-spacing: 0.1em; padding: 0.15rem 0.4rem; }
+  .admin-user-role.admin { color: var(--gold); border: 1px solid var(--gold); }
+  .admin-session-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 0.5rem; padding: 0.5rem; border-bottom: 1px solid var(--border); font-size: 0.7rem; }
+  .game-config-form { display: flex; flex-direction: column; gap: 0.6rem; text-align: left; }
+
+  /* ===== TASKS ===== */
+  .task-active-section { background: var(--bg2); border: 1px solid rgba(0,229,160,0.4); padding: 1rem; margin-bottom: 1rem; position: relative; overflow: hidden; }
+  .task-active-section::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--green); }
+
+  .task-active-card { display: flex; flex-direction: column; gap: 0.5rem; }
+  .task-active-title { font-family: 'Orbitron', monospace; font-size: 0.95rem; font-weight: 700; color: var(--green); }
+  .task-active-desc { font-size: 0.8rem; line-height: 1.5; color: var(--text); }
+  .task-active-meta { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; font-size: 0.7rem; }
+  .task-points-badge { background: var(--gold); color: var(--bg); font-family: 'Orbitron', monospace; font-weight: 900; padding: 0.2rem 0.6rem; font-size: 0.7rem; letter-spacing: 0.05em; }
+  .task-timer-badge { color: var(--orange); font-family: 'Orbitron', monospace; font-weight: 700; font-size: 0.85rem; letter-spacing: 0.05em; }
+  .task-timer-badge.urgent { color: var(--red); animation: blink 1.2s step-end infinite; }
+  .task-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap; }
+
+  .task-card { background: var(--bg2); border: 1px solid var(--border); padding: 0.9rem; margin-bottom: 0.6rem; transition: border-color 0.2s, transform 0.15s; }
+  .task-card:hover { border-color: rgba(255,60,120,0.3); transform: translateX(3px); }
+  .task-card-title { font-family: 'Orbitron', monospace; font-size: 0.85rem; font-weight: 700; margin-bottom: 0.3rem; }
+  .task-card-desc { font-size: 0.75rem; color: var(--text); line-height: 1.5; margin-bottom: 0.6rem; }
+  .task-card-bottom { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+  .task-card-meta { font-size: 0.72rem; color: var(--muted); }
+  .task-locked { opacity: 0.5; }
+  .task-locked .task-card-title::after { content: ' 🔒'; }
+
+  .activity-item { display: flex; justify-content: space-between; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); font-size: 0.7rem; gap: 0.5rem; align-items: flex-start; }
+  .activity-item:last-child { border-bottom: none; }
+  .activity-text { flex: 1; }
+  .activity-text b { color: var(--text); }
+  .activity-status { font-family: 'Orbitron', monospace; font-size: 0.66rem; letter-spacing: 0.1em; padding: 0.15rem 0.4rem; white-space: nowrap; }
+  .activity-status.completed { color: var(--green); border: 1px solid var(--green); }
+  .activity-status.failed { color: var(--red); border: 1px solid var(--red); }
+  .activity-status.claimed { color: var(--blue); border: 1px solid var(--blue); }
+  .activity-status.spawned { color: var(--purple); border: 1px solid var(--purple); }
+  .activity-status.revoked { color: var(--orange); border: 1px solid var(--orange); }
+  .activity-status.daily { color: var(--gold); border: 1px solid var(--gold); }
+  .activity-time { color: var(--muted); font-size: 0.66rem; margin-top: 0.2rem; }
+
+  /* Honour banner */
+  .honour-banner { background: rgba(255,215,0,0.05); border: 1px solid rgba(255,215,0,0.25); padding: 0.55rem 0.85rem; margin-bottom: 1rem; font-size: 0.72rem; color: var(--gold); text-align: center; line-height: 1.45; letter-spacing: 0.03em; }
+
+  /* Game-state banner for Timer/Tasks tabs when pre or ended */
+  .game-state-banner {
+    background: var(--bg2);
+    border: 1px solid var(--border2);
+    padding: 1rem 1.1rem;
+    margin-bottom: 1.2rem;
+    border-left: 3px solid var(--accent);
+    display: flex;
+    gap: 0.8rem;
+    align-items: flex-start;
+  }
+  .game-state-banner.pre { border-left-color: var(--accent); }
+  .game-state-banner.ended { border-left-color: var(--muted); }
+  .gsb-icon { font-size: 1.4rem; line-height: 1; flex-shrink: 0; padding-top: 0.1rem; }
+  .gsb-text { flex: 1; min-width: 0; }
+  .gsb-heading { font-family: 'Orbitron', monospace; font-size: 0.84rem; font-weight: 700; color: var(--text); letter-spacing: 0.05em; line-height: 1.3; margin-bottom: 0.3rem; }
+  .gsb-sub { font-size: 0.76rem; color: var(--muted); line-height: 1.55; }
+  .gsb-sub b { color: var(--accent); font-family: 'Orbitron', monospace; font-variant-numeric: tabular-nums; }
+
+  /* Footer with version */
+  .app-footer { margin-top: 2rem; padding: 1rem 0; text-align: center; border-top: 1px solid var(--border); }
+  .app-version { font-family: 'Orbitron', monospace; font-size: 0.6rem; letter-spacing: 0.15em; color: var(--muted); opacity: 0.5; }
+
+  /* Persistent timer status bar */
+  .timer-status-bar {
+    display: flex; justify-content: space-between; align-items: center; gap: 0.6rem;
+    background: var(--bg2); border: 1px solid var(--border); padding: 0.6rem 0.8rem;
+    margin-bottom: 1rem; position: relative; overflow: hidden;
+    transition: border-color 0.3s;
+  }
+  .timer-status-bar::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--green);
+  }
+  .timer-status-bar.idle::before {
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    background-size: 200% 100%;
+    animation: tsb-shimmer 3s linear infinite;
+  }
+  @keyframes tsb-shimmer {
+    0% { background-position: 0% 0; }
+    100% { background-position: 200% 0; }
+  }
+  .timer-status-bar.idle { border-color: rgba(255,60,120,0.3); cursor: pointer; }
+  .timer-status-bar.idle:hover { border-color: rgba(255,60,120,0.6); background: rgba(255,60,120,0.04); }
+  .timer-status-bar.tease::before { background: var(--orange); }
+  .timer-status-bar.paused::before { background: var(--orange); }
+  .timer-status-bar.tease { border-color: rgba(255,159,67,0.4); }
+  .timer-status-bar.paused { border-color: rgba(255,159,67,0.4); }
+  .timer-status-bar.tease.paused::before { background: var(--muted); }
+
+  /* Idle state */
+  .tsb-idle {
+    display: flex; align-items: center; gap: 0.8rem; flex: 1; cursor: pointer;
+    width: 100%;
+  }
+  .tsb-idle-icon {
+    width: 2rem; height: 2rem; border-radius: 50%;
+    background: var(--accent); color: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.9rem; font-weight: 700; flex-shrink: 0;
+    box-shadow: 0 0 12px rgba(255,60,120,0.4);
+    transition: transform 0.15s;
+  }
+  .timer-status-bar.idle:hover .tsb-idle-icon {
+    transform: scale(1.05);
+    box-shadow: 0 0 18px rgba(255,60,120,0.6);
+  }
+  .tsb-idle-text { flex: 1; min-width: 0; }
+  .tsb-idle-title {
+    font-family: 'Orbitron', monospace; font-size: 0.85rem; font-weight: 700;
+    color: var(--text); letter-spacing: 0.05em;
+  }
+  .tsb-idle-sub {
+    font-size: 0.66rem; color: var(--muted); letter-spacing: 0.08em;
+    text-transform: uppercase; margin-top: 0.15rem;
+  }
+  .tsb-idle-arrow {
+    font-family: 'Orbitron', monospace; color: var(--muted); font-size: 1rem;
+    transition: transform 0.15s, color 0.15s; flex-shrink: 0;
+  }
+  .timer-status-bar.idle:hover .tsb-idle-arrow {
+    color: var(--accent); transform: translateX(3px);
+  }
+
+  /* Active state wrapper */
+  .tsb-active {
+    display: flex; justify-content: space-between; align-items: center; gap: 0.6rem;
+    flex: 1; width: 100%;
+  }
+
+  /* Manual log collapsible toggle */
+  .manual-toggle {
+    width: 100%; background: transparent; border: 1px dashed var(--border2);
+    color: var(--muted); padding: 0.7rem 0.9rem; cursor: pointer;
+    display: flex; align-items: center; gap: 0.6rem;
+    font-family: 'Orbitron', monospace; font-size: 0.7rem;
+    letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700;
+    transition: all 0.2s;
+  }
+  .manual-toggle:hover { border-color: var(--text); color: var(--text); }
+  .manual-toggle.expanded { border-color: var(--accent); color: var(--text); border-style: solid; }
+  .manual-toggle-icon { font-size: 0.9rem; }
+  .manual-toggle-text { flex: 1; text-align: left; }
+  .manual-toggle-chevron {
+    font-size: 0.8rem; transition: transform 0.2s;
+  }
+  .manual-toggle.expanded .manual-toggle-chevron { transform: rotate(180deg); }
+  .manual-log-body { padding-top: 0.5rem; }
+
+  .tsb-info {
+    display: flex; align-items: center; gap: 0.7rem; flex: 1; cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .tsb-info:hover { opacity: 0.85; }
+  .tsb-mode { font-size: 1.4rem; line-height: 1; }
+  .tsb-time-wrap { display: flex; flex-direction: column; gap: 0.1rem; }
+  .tsb-time {
+    font-family: 'Orbitron', monospace; font-size: 1.05rem; font-weight: 900;
+    color: var(--green); letter-spacing: 0.05em; line-height: 1;
+    font-variant-numeric: tabular-nums; font-feature-settings: "tnum";
+    width: 8ch; display: inline-block;
+  }
+  .timer-status-bar.tease .tsb-time { color: var(--orange); }
+  .timer-status-bar.paused .tsb-time { color: var(--orange); }
+  .timer-status-bar.running .tsb-time { animation: tsb-pulse 1.5s ease-in-out infinite; }
+  @keyframes tsb-pulse {
+    0%, 100% { text-shadow: 0 0 8px rgba(0,229,160,0.4); }
+    50% { text-shadow: 0 0 14px rgba(0,229,160,0.8); }
+  }
+  .timer-status-bar.tease.running .tsb-time { animation: tsb-pulse-tease 1.5s ease-in-out infinite; }
+  @keyframes tsb-pulse-tease {
+    0%, 100% { text-shadow: 0 0 8px rgba(255,159,67,0.4); }
+    50% { text-shadow: 0 0 14px rgba(255,159,67,0.8); }
+  }
+
+  .tsb-meta {
+    font-size: 0.55rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
+  }
+
+  .tsb-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
+  .tsb-btn {
+    padding: 0.45rem 0.8rem; font-family: 'Orbitron', monospace; font-size: 0.65rem;
+    letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer;
+    border: 1px solid; transition: all 0.15s; font-weight: 700; min-width: 2.5rem;
+  }
+  .tsb-pause { background: transparent; border-color: var(--orange); color: var(--orange); }
+  .tsb-pause:hover { background: var(--orange); color: var(--bg); }
+  .tsb-resume { background: var(--green); border-color: var(--green); color: var(--bg); }
+  .tsb-resume:hover { box-shadow: 0 0 12px rgba(0,229,160,0.5); }
+  .tsb-end { background: transparent; border-color: var(--muted); color: var(--muted); }
+  .tsb-end:hover { border-color: var(--text); color: var(--text); }
+
+  /* Points column on overall board */
+  .points-display { text-align: right; white-space: nowrap; min-width: 2.2rem; }
+  .points-val { font-family: 'Orbitron', monospace; font-size: 0.9rem; font-weight: 700; color: var(--gold); }
+  .points-sub { font-size: 0.62rem; color: var(--muted); letter-spacing: 0.05em; }
+
+  /* Override entry grid for overall (4 columns now) */
+  #leaderboard .entry { grid-template-columns: 2rem minmax(0, 1fr) auto auto; gap: 0.5rem; }
+
+  /* Admin task library */
+  .task-lib-row { display: grid; grid-template-columns: 1fr auto auto; gap: 0.5rem; align-items: center; padding: 0.5rem; border-bottom: 1px solid var(--border); font-size: 0.75rem; }
+  .task-lib-row:last-child { border-bottom: none; }
+  .task-lib-title { font-weight: 700; }
+  .task-lib-desc { color: var(--muted); font-size: 0.72rem; margin-top: 0.2rem; line-height: 1.45; }
+  textarea.input { font-family: 'Space Mono', monospace; resize: vertical; min-height: 60px; }
+
+  /* BDSM toggle bar */
+  .bdsm-toggle-bar { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; padding: 0.7rem 0.95rem; margin-bottom: 1rem; font-size: 0.76rem; line-height: 1.45; flex-wrap: wrap; }
+  .bdsm-toggle-bar.opted-in { background: rgba(255,92,92,0.06); border: 1px solid rgba(255,92,92,0.3); color: var(--text); }
+  .bdsm-toggle-bar.opted-out { background: var(--bg2); border: 1px solid var(--border); color: var(--muted); }
+  .bdsm-toggle-bar b { color: var(--text); }
+  .bdsm-icon { font-size: 0.9rem; margin-right: 0.2rem; }
+  .bdsm-task-tag { color: #ff5c5c; font-size: 0.55rem; letter-spacing: 0.1em; border: 1px solid #ff5c5c; padding: 0.1rem 0.35rem; vertical-align: middle; font-weight: 700; font-family: 'Orbitron', monospace; margin-left: 0.3rem; background: rgba(255,92,92,0.08); }
+
+  /* Locked BDSM card (shown to opted-out users) */
+  .task-bdsm-hidden { border-color: rgba(255,92,92,0.2); background: rgba(255,92,92,0.03); border-style: dashed; }
+  .task-bdsm-hidden .task-card-title { color: var(--muted); font-style: italic; }
+  .task-bdsm-hidden .task-card-desc { color: var(--muted); font-size: 0.7rem; }
+
+  /* Transfer table */
+  .transfer-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 0.6rem; align-items: center; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); font-size: 0.7rem; }
+  .transfer-row:last-child { border-bottom: none; }
+  .transfer-row.header { font-family: 'Orbitron', monospace; font-size: 0.55rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .transfer-name { font-weight: 700; }
+  .transfer-num { font-family: 'Orbitron', monospace; font-weight: 700; min-width: 2.5rem; text-align: right; }
+  .transfer-num.untransferred { color: var(--gold); }
+  .transfer-num.zero { color: var(--muted); opacity: 0.6; }
+  .transfer-num.total { color: var(--text); }
+  .transfer-num.done { color: var(--green); }
+
+  /* Adjustments list */
+  .adj-row { display: grid; grid-template-columns: 1fr auto auto; gap: 0.5rem; align-items: center; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); font-size: 0.7rem; }
+  .adj-row:last-child { border-bottom: none; }
+  .adj-points { font-family: 'Orbitron', monospace; font-weight: 700; padding: 0.2rem 0.4rem; }
+  .adj-points.positive { color: var(--green); }
+  .adj-points.negative { color: var(--red); }
+  .adj-reason { color: var(--muted); font-size: 0.65rem; margin-top: 0.2rem; font-style: italic; }
+  .adj-meta { color: var(--muted); font-size: 0.6rem; margin-top: 0.2rem; }
+
+  /* Transfer history */
+  .history-snapshot { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); font-size: 0.7rem; }
+  .history-snapshot:last-child { border-bottom: none; }
+  .history-snapshot-meta { color: var(--muted); font-size: 0.6rem; margin-top: 0.2rem; }
+
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 2000; padding: 1rem; }
+
+  /* Age gate */
+  .age-gate-modal { max-width: 440px; text-align: center; padding: 1.6rem 1.2rem; }
+  .age-gate-icon { font-size: 2.5rem; margin-bottom: 0.5rem; line-height: 1; }
+  .age-gate-modal h2 { color: var(--accent); margin-bottom: 0.8rem; }
+  .age-gate-text { font-size: 0.85rem; color: var(--text); margin-bottom: 0.8rem; line-height: 1.5; }
+  .age-gate-list { text-align: left; font-size: 0.75rem; color: var(--muted); line-height: 1.6; margin: 0.4rem 0 1.2rem 0; padding-left: 1.2rem; }
+  .age-gate-list li { margin-bottom: 0.25rem; }
+  .age-gate-list b { color: var(--text); }
+  .age-gate-actions { display: flex; flex-direction: column; gap: 0.5rem; }
+  .age-gate-confirm { width: 100%; padding: 0.85rem; font-size: 0.85rem; }
+  .modal { background: var(--bg2); border: 1px solid var(--border2); padding: 1.5rem; width: 100%; max-width: 400px; position: relative; }
+  .modal::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--accent2), var(--accent)); }
+  .modal h2 { font-family: 'Orbitron', monospace; font-size: 1rem; letter-spacing: 0.1em; margin-bottom: 1rem; text-align: center; }
+  .modal-row { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.8rem; }
+  .modal-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
+  .modal-actions .btn { flex: 1; }
+  .modal-close { position: absolute; top: 0.6rem; right: 0.8rem; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1.2rem; }
+
+  .toast { position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%) translateY(100px); background: var(--bg3); border: 1px solid var(--accent); padding: 0.7rem 1.3rem; font-size: 0.75rem; color: var(--text); box-shadow: 0 0 30px rgba(255,60,120,0.3); transition: transform 0.3s ease; z-index: 3000; max-width: 90vw; text-align: center; }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  .hidden { display: none !important; }
+  @media (max-width: 500px) {
+    .input-row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="noise"></div>
+<div class="blob blob1"></div>
+<div class="blob blob2"></div>
+<div class="toast" id="toast"></div>
+
+<!-- Age gate - shown on first visit per device -->
+<div class="modal-overlay" id="age-gate-modal" style="display:none">
+  <div class="modal age-gate-modal">
+    <div class="age-gate-icon">🔞</div>
+    <h2>Adult Content</h2>
+    <p class="age-gate-text">
+      This app contains adult content related to sexual activity. By entering you confirm:
+    </p>
+    <ul class="age-gate-list">
+      <li>You are <b>18 or over</b> (or the age of majority in your region)</li>
+      <li>You consent to viewing adult content</li>
+      <li>It is legal to view such content in your jurisdiction</li>
+    </ul>
+    <div class="age-gate-actions">
+      <button class="btn btn-start age-gate-confirm" onclick="confirmAgeGate()">I confirm — let me in</button>
+      <button class="btn btn-secondary" onclick="leaveAgeGate()">Leave</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="login-modal">
+  <div class="modal">
+    <h2>Join the Game</h2>
+    <div class="modal-row">
+      <label class="field-label">Discord Username</label>
+      <input class="input" id="login-username" placeholder="e.g. CuriousPirate" value="CuriousPirate">
+    </div>
+    <div class="modal-row">
+      <label class="field-label">Admin Password (Optional)</label>
+      <input class="input" id="login-password" type="password" placeholder="Leave blank for player">
+      <span style="font-size:0.6rem;color:var(--muted)">Demo password: <b>spicy2026</b></span>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-start" onclick="doLogin()">Enter</button>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <header>
+    <div class="game-badge" id="game-badge">🔥 Live Game</div>
+    <h1 id="game-name">Server Playtime Championship</h1>
+    <p class="subtitle" id="game-subtitle">Curious Pirate Games</p>
+  </header>
+
+  <div class="auth-bar" id="auth-bar" style="display:none">
+    <div class="auth-user">
+      <div class="auth-dot" id="auth-dot"></div>
+      <span class="auth-username" id="auth-username">—</span>
+      <span class="auth-role" id="auth-role">player</span>
+    </div>
+    <button class="btn btn-secondary btn-small" onclick="logout()">Switch user</button>
+  </div>
+
+  <div class="honour-banner">⚜ Honour system · for fun · lots of ways to climb the board</div>
+
+  <!-- Persistent timer status bar — shows idle "Start" CTA when no timer, or live timer info when running -->
+  <div class="timer-status-bar" id="timer-status-bar" style="display:none">
+    <!-- Idle state: visible when no timer is running -->
+    <div class="tsb-idle" id="tsb-idle" onclick="setTab('timer')">
+      <div class="tsb-idle-icon" id="tsb-idle-icon">▶</div>
+      <div class="tsb-idle-text">
+        <div class="tsb-idle-title" id="tsb-idle-title">Start a Session</div>
+        <div class="tsb-idle-sub" id="tsb-idle-sub">Tap to open the timer</div>
+      </div>
+      <div class="tsb-idle-arrow" id="tsb-idle-arrow">→</div>
+    </div>
+
+    <!-- Active state: visible when timer is running or paused -->
+    <div class="tsb-active" id="tsb-active" style="display:none">
+      <div class="tsb-info" onclick="setTab('timer')">
+        <div class="tsb-mode" id="tsb-mode">🔒</div>
+        <div class="tsb-time-wrap">
+          <div class="tsb-time" id="tsb-time">00:00:00</div>
+          <div class="tsb-meta" id="tsb-meta">live</div>
+        </div>
+      </div>
+      <div class="tsb-actions">
+        <button class="tsb-btn tsb-pause hidden" id="tsb-pause" onclick="event.stopPropagation(); pauseTimer()">⏸</button>
+        <button class="tsb-btn tsb-resume hidden" id="tsb-resume" onclick="event.stopPropagation(); resumeTimer()">▶</button>
+        <button class="tsb-btn tsb-end" id="tsb-end" onclick="event.stopPropagation(); stopTimerFromBar()">End</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="overall" onclick="setTab('overall')"><span class="tab-icon">🏠</span><span class="tab-label">Home</span></button>
+    <button class="tab" data-tab="timer" onclick="setTab('timer')"><span class="tab-icon">⏱</span><span class="tab-label">Timer</span></button>
+    <button class="tab" data-tab="tasks" onclick="setTab('tasks')"><span class="tab-icon">✓</span><span class="tab-label">Tasks</span></button>
+    <button class="tab" data-tab="categories" onclick="setTab('categories')"><span class="tab-icon">📊</span><span class="tab-label">Boards</span></button>
+    <button class="tab" data-tab="rules" onclick="setTab('rules')"><span class="tab-icon">📖</span><span class="tab-label">Rules</span></button>
+    <button class="tab hidden" data-tab="admin" onclick="setTab('admin')"><span class="tab-icon">⚙</span><span class="tab-label">Admin</span></button>
+  </div>
+
+  <div id="tab-overall">
+    <div class="countdown">
+      <div>
+        <div class="countdown-label" id="countdown-label">Game ends in</div>
+        <div class="countdown-time" id="countdown">—</div>
+      </div>
+      <div class="game-progress">
+        <div class="countdown-label" style="display:flex;justify-content:space-between"><span>Game progress</span><span id="pct-label">0%</span></div>
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+      </div>
+    </div>
+
+    <div class="daily-card" id="daily-card" style="display:none">
+      <div class="daily-card-title">
+        <span class="daily-card-icon">🏆</span>
+        <div class="daily-card-title-text">
+          <div class="daily-card-heading">Daily Bonus Points</div>
+          <div class="daily-card-subheading">Top 3 by playtime in this 24h window get bonus points</div>
+        </div>
+      </div>
+      <div class="daily-header">
+        <div>
+          <div class="countdown-label">⏱ Window closes in</div>
+          <div class="daily-time" id="daily-countdown">—</div>
+        </div>
+        <div class="daily-prizes">
+          <div class="countdown-label">Bonus pts up for grabs</div>
+          <div class="daily-prize-values" id="daily-prize-values">—</div>
+        </div>
+      </div>
+      <div class="daily-podium-label">Current standings (this window only)</div>
+      <div class="daily-podium" id="daily-podium"></div>
+    </div>
+
+    <div class="howto-card">
+      <div class="howto-title">
+        <span class="howto-icon">🎯</span>
+        <div>
+          <div class="howto-heading">The Goal</div>
+          <div class="howto-sub">Log playtime and complete tasks to earn points and climb the leaderboards.</div>
+        </div>
+      </div>
+
+      <div class="howto-list">
+        <div class="howto-row" onclick="setTab('timer')">
+          <div class="howto-row-icon">▶</div>
+          <div class="howto-row-text">
+            <b>Start a session</b>
+            <span>Tap the bar at the top, pick a mode, hit Start</span>
+          </div>
+          <div class="howto-row-arrow">→</div>
+        </div>
+
+        <div class="howto-row" onclick="setTab('tasks')">
+          <div class="howto-row-icon">✓</div>
+          <div class="howto-row-text">
+            <b>Claim tasks for bonus points</b>
+            <span>Tasks pop up at random — first come, first served, 1hr to complete</span>
+          </div>
+          <div class="howto-row-arrow">→</div>
+        </div>
+
+        <div class="howto-row no-tap">
+          <div class="howto-row-icon">🏆</div>
+          <div class="howto-row-text">
+            <b>Three modes</b>
+            <span>🔒 Denial · 💦 Orgasm · 🌶️ Tease (separate leaderboard)</span>
+          </div>
+        </div>
+
+        <div class="howto-row" onclick="setTab('categories')">
+          <div class="howto-row-icon">📊</div>
+          <div class="howto-row-text">
+            <b>See standings</b>
+            <span>All leaderboards across modes, edges, orgasms and toys</span>
+          </div>
+          <div class="howto-row-arrow">→</div>
+        </div>
+
+        <div class="howto-row" onclick="setTab('rules')">
+          <div class="howto-row-icon">📖</div>
+          <div class="howto-row-text">
+            <b>Full rules</b>
+            <span>Daily and end-of-game bonuses, scoring, BDSM tasks, more</span>
+          </div>
+          <div class="howto-row-arrow">→</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="tab-categories" class="hidden">
+    <div class="cat-section">
+      <div class="cat-header">
+        <div class="cat-dot" style="background:var(--green)"></div>
+        <div class="cat-title" style="color:var(--green)">🏆 Overall Standings</div>
+      </div>
+      <div class="cat-desc">Total playtime ranks the leaderboard. Points are the tiebreaker.</div>
+      <div class="leaderboard" id="leaderboard"></div>
+    </div>
+    <div id="cat-leaderboards"></div>
+  </div>
+
+  <div id="tab-tasks" class="hidden">
+    <div class="game-state-banner" id="tasks-state-banner" style="display:none"></div>
+    <div id="bdsm-toggle"></div>
+
+    <div class="task-active-section" id="my-active-task-wrap" style="display:none">
+      <div class="section-title" style="margin-bottom:0.6rem">Your Active Task</div>
+      <div class="task-active-card" id="my-active-task"></div>
+    </div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem">
+      <span>Available Tasks</span>
+      <span class="cat-count" id="task-count">0 available</span>
+    </div>
+    <div class="cat-desc">Tasks spawn at random times throughout the day. First to claim keeps it. You have 1 hour to complete. Posting proof is encouraged where possible.</div>
+    <div id="available-tasks"></div>
+
+    <div class="section-title" style="margin-top:1.5rem">Recent Activity</div>
+    <div id="task-activity"></div>
+  </div>
+
+  <div id="tab-timer" class="hidden">
+    <div class="game-state-banner" id="timer-state-banner" style="display:none"></div>
+    <div class="timer-panel">
+      <div class="rule-reminder" id="rule-reminder">
+        <b>⚠ REMINDER:</b> Playtime must be time spent <b>actively attempting to get to orgasm or edge</b>. The timer is on the honour system.
+      </div>
+
+      <label class="field-label">Session Mode</label>
+      <div class="mode-select" id="mode-select-grid">
+        <button class="mode-btn denial selected" data-mode="denial" onclick="selectMode(this)"><span class="mode-icon">🔒</span>Denial</button>
+        <button class="mode-btn orgasm" data-mode="orgasm" onclick="selectMode(this)"><span class="mode-icon">💦</span>Orgasm</button>
+        <button class="mode-btn tease" data-mode="tease" onclick="selectMode(this)"><span class="mode-icon">🌶️</span>Tease</button>
+      </div>
+
+      <div class="toy-section">
+        <label class="toy-toggle">
+          <input type="checkbox" id="toy-checkbox" onchange="toggleToy()">
+          <span class="toy-toggle-label">🎮 Using a toy</span>
+        </label>
+        <select class="toy-select" id="toy-select" disabled></select>
+      </div>
+
+      <div class="big-timer" id="big-timer">00:00:00</div>
+      <div class="timer-status" id="timer-status">ready</div>
+
+      <div class="live-counters" id="counters-wrap">
+        <div class="counter-card disabled" id="edge-counter-card">
+          <div class="counter-label">Edges</div>
+          <div class="counter-val edges" id="edge-count">0</div>
+          <button class="counter-btn edge" id="edge-btn" onclick="bumpEdge()" disabled>+1 EDGE</button>
+        </div>
+        <div class="counter-card disabled" id="orgasm-counter-card">
+          <div class="counter-label">Orgasms</div>
+          <div class="counter-val orgs" id="orgasm-count">0</div>
+          <button class="counter-btn org" id="orgasm-btn" onclick="bumpOrgasm()" disabled>+1 ORGASM</button>
+        </div>
+      </div>
+
+      <div class="timer-controls">
+        <button class="btn btn-start" id="btn-start" onclick="startTimer()">Start</button>
+        <button class="btn btn-pause hidden" id="btn-pause" onclick="pauseTimer()">⏸ Pause</button>
+        <button class="btn btn-resume hidden" id="btn-resume" onclick="resumeTimer()">▶ Resume</button>
+        <button class="btn btn-stop hidden" id="btn-stop" onclick="stopTimer()">End Session</button>
+        <button class="btn btn-submit hidden" id="btn-submit" onclick="submitSession()">Save Session</button>
+        <button class="btn btn-secondary btn-small hidden" id="btn-discard" onclick="discardSession()">Discard</button>
+      </div>
+
+      <div class="manual-section">
+        <button class="manual-toggle" id="manual-toggle-btn" onclick="toggleManualLog()">
+          <span class="manual-toggle-icon">📝</span>
+          <span class="manual-toggle-text">Log a session manually</span>
+          <span class="manual-toggle-chevron" id="manual-chevron">▾</span>
+        </button>
+        <div class="manual-log-body" id="manual-log-body" style="display:none">
+          <div class="cat-desc" style="margin-top:0.6rem">Couldn't use the timer? Log a past session manually. Max 2 hours.</div>
+          <div class="manual-form">
+            <div class="input-row">
+              <div>
+                <label class="field-label">Mode</label>
+                <select class="input" id="manual-mode">
+                  <option value="denial">🔒 Denial</option>
+                  <option value="orgasm">💦 Orgasm</option>
+                  <option value="tease">🌶️ Tease</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label">Duration (mins)</label>
+                <input type="number" class="input" id="manual-mins" min="1" max="120" placeholder="1–120">
+              </div>
+            </div>
+            <div class="input-row">
+              <div>
+                <label class="field-label">Edges</label>
+                <input type="number" class="input" id="manual-edges" min="0" placeholder="0">
+              </div>
+              <div>
+                <label class="field-label">Orgasms</label>
+                <input type="number" class="input" id="manual-orgs" min="0" placeholder="0">
+              </div>
+            </div>
+            <div>
+              <label class="field-label">Toy (optional)</label>
+              <select class="input" id="manual-toy"></select>
+            </div>
+            <button class="btn btn-secondary" onclick="submitManual()">Log Session</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="session-history" id="session-history">
+        <div class="section-title">Your Recent Sessions</div>
+        <div id="history-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-rules" class="hidden">
+    <div class="rules-section">
+      <h2 id="rules-title">Game Rules</h2>
+
+      <div class="key-rule" style="background:rgba(255,215,0,0.06);border-left-color:var(--gold)">
+        <b style="color:var(--gold)">⚜ Honour System:</b> This game is for fun, run on the honour system. Please play fair and have fun.
+      </div>
+
+      <div class="key-rule">
+        <b>The One Rule:</b> Playtime must be time spent <b>actively attempting to get to orgasm or edge</b>. The one exception is <b>🌶️ Tease mode</b> — see Session Modes below. Don't game the system with the timer running while you do other things.
+      </div>
+
+      <h3>How It Works</h3>
+      <ul>
+        <li>Open the app and start a timer when you play</li>
+        <li>End the timer when you're done — your minutes go on the leaderboard</li>
+        <li>Claim tasks when they pop up for bonus points</li>
+        <li>Each day, the top 3 by playtime earn bonus points — and the leaderboard toppers earn bigger bonuses at the end of the week</li>
+        <li>Most playtime wins overall</li>
+      </ul>
+      <p style="background:rgba(0,229,160,0.05);border:1px solid rgba(0,229,160,0.25);padding:0.7rem 0.9rem;font-size:0.78rem;color:var(--text);text-align:center;line-height:1.5;margin-top:0.8rem">
+        Now you know how to play — go <b style="color:var(--green)"><i>play.</i></b><br>
+        <span style="color:var(--muted);font-size:0.7rem">Or keep reading for more details.</span>
+      </p>
+
+      <h3>Session Modes</h3>
+      <ul>
+        <li><b style="color:var(--blue)">🔒 Denial</b> — sessions where you're staying on the edge and not allowed to come. Track edges as you go.</li>
+        <li><b style="color:var(--pink)">💦 Orgasm</b> — sessions where orgasm is allowed/expected. Track orgasms as you go.</li>
+        <li><b style="color:var(--orange)">🌶️ Tease</b> — toy use during normal activities, <b>not</b> actively trying to come or edge (e.g. wearing a vibe while doing chores). Tease time is <b>kept entirely separate</b>: it doesn't contribute to Overall playtime, Denial/Orgasm Time, Toy Time, Edge or Orgasm Count, or daily awards. It only counts toward the dedicated Toy Tease leaderboard.</li>
+      </ul>
+      <p><b>🎮 Toy use</b> stacks on top of Denial or Orgasm sessions and feeds the Toy Time leaderboard. A Tease session always requires a toy by design.</p>
+
+      <h3>Switching Modes</h3>
+      <p>You can pick a different mode every session — there's no commitment. Started a denial session and changed your mind? Just save it and start a new orgasm one. Or switch the mode at save time before submitting.</p>
+
+      <h3>Tasks</h3>
+      <p>Throughout the day, tasks pop up at random times in the Tasks tab. <b>First come, first served</b> — when you claim a task, no one else can grab it. You have a limited window (typically 1 hour, set by admins) to complete it, then it returns to the pool. You can't reclaim the same instance you gave up on, but the same task template can spawn again later. Once complete, points are added to your tally.</p>
+      <p>Tasks spawn at random times across the day. If you're asleep or offline when one appears, someone else may grab it — that's just how the timing works. Different people will catch different tasks; over the week it tends to even out.</p>
+      <p><b>Posting proof is encouraged where possible</b> in the server, but the app trusts you. Admins can revoke points if foul play is suspected.</p>
+      <p>Tasks are tagged either <b>🌐 General</b> or <b>⛓️ BDSM</b>. By default you only see General tasks. To see and claim BDSM tasks, use the <b>Unlock BDSM</b> toggle at the top of the Tasks tab. You can hide them again anytime. Your BDSM preference is stored on your device only and not visible to other players. The spawner also ensures at least one General task is always available, so opting out never leaves you with nothing to do.</p>
+
+      <h3>Daily Bonus Points</h3>
+      <p>Every 24 hours (counted from when the game started, so the window is the same for every timezone), the top 3 players by Denial+Orgasm playtime in that window get bonus points. Tease time is excluded from the daily ranking, in line with the Tease rule above.</p>
+      <p>A session counts toward the window it was <b>saved into</b>, based on when you press End/Save. If your session straddles a window boundary (e.g. starts before midnight, ends after), the whole thing lands in whichever window you saved in. Plan accordingly if you're close to a window flip.</p>
+
+      <h3>End-of-Game Bonus Points</h3>
+      <p>When the game ends, the top 3 players on each leaderboard get bonus points added to their tally:</p>
+      <ul>
+        <li><b>Overall leaderboard</b> — biggest bonus, awarded after all the others have been calculated so the rankings reflect the final point totals</li>
+        <li><b>Denial Time, Orgasm Time, Toy Time, Edge Count, Orgasm Count</b> — sub-board bonus tier</li>
+        <li><b>🌶️ Toy Tease Time</b> — its own bonus tier (since Tease time doesn't count anywhere else)</li>
+        <li><b>🎮 Toy Popularity</b> board does <b>not</b> award points — it's just for fun</li>
+      </ul>
+
+      <h3>The Timer</h3>
+      <p>The timer keeps running even if you close the page or lock your phone (it's tracked on your device). Come back any time to End or Pause it. Pause holds the time still while you step away. If you leave a timer running for over 24 hours, the app assumes you forgot and prompts you to confirm or discard on next visit.</p>
+
+      <h3>Manual Logs</h3>
+      <p>Couldn't use the timer? You can self-report a session up to <b>2 hours</b> per entry. Logging unrealistic amounts or repeatedly to inflate your numbers is gaming the system — admins audit and can revoke points or sessions.</p>
+
+      <h3>Admin Actions</h3>
+      <p>Admins can spawn extra tasks, award or deduct points (with optional reason, kept private), edit or delete sessions, ban users, and transfer points to the main monthly leaderboard. Manual point adjustments aren't shown to other players in the activity log — they just show up silently in totals.</p>
+
+      <h3>About this app</h3>
+      <ul>
+        <li>Your timer state and BDSM tasks preference are stored on your device only — no third-party tracking, no analytics.</li>
+        <li>Sessions, claimed tasks, and points are stored on the game's database and visible to other players in the game.</li>
+        <li>Once the game ends, all data will be deleted.</li>
+        <li>This is a community game running on the honour system. Be kind to each other.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div id="tab-admin" class="hidden">
+    <div class="admin-warn">⚡ ADMIN MODE ACTIVE — handle with care</div>
+
+    <div class="admin-section">
+      <div class="section-title">Game Configuration</div>
+      <div class="game-config-form">
+        <div>
+          <label class="field-label">Game Name</label>
+          <input type="text" class="input" id="cfg-name" placeholder="e.g. The Play Race">
+        </div>
+        <div>
+          <label class="field-label">Subtitle / Tagline</label>
+          <input type="text" class="input" id="cfg-subtitle" placeholder="e.g. Week 1 · May 2026">
+        </div>
+        <div class="input-row">
+          <div>
+            <label class="field-label">Start Date</label>
+            <input type="datetime-local" class="input" id="cfg-start">
+          </div>
+          <div>
+            <label class="field-label">End Date</label>
+            <input type="datetime-local" class="input" id="cfg-end">
+          </div>
+        </div>
+        <div class="cat-desc">Set how long the game runs. Daily 24h windows start from the game start time.</div>
+        <button class="btn btn-secondary btn-small" onclick="saveConfig()">Save Configuration</button>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <div class="section-title">Tasks Configuration</div>
+      <div class="game-config-form">
+        <div class="input-row">
+          <div>
+            <label class="field-label">Tasks per 24h</label>
+            <input type="number" class="input" id="cfg-tasks-per-day" min="0" max="24" placeholder="4">
+          </div>
+          <div>
+            <label class="field-label">Claim window (mins)</label>
+            <input type="number" class="input" id="cfg-claim-mins" min="5" max="240" placeholder="60">
+          </div>
+        </div>
+        <div class="cat-desc">Tasks spawn at random times across the full 24h cycle so all timezones get a chance. Set to 0 to disable tasks.</div>
+        <button class="btn btn-secondary btn-small" onclick="saveTaskConfig()">Save Task Config</button>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <div class="section-title">Daily Points Award</div>
+      <div class="game-config-form">
+        <div class="input-row">
+          <div>
+            <label class="field-label">1st place pts</label>
+            <input type="number" class="input" id="cfg-daily-1" min="0" placeholder="50">
+          </div>
+          <div>
+            <label class="field-label">2nd place pts</label>
+            <input type="number" class="input" id="cfg-daily-2" min="0" placeholder="30">
+          </div>
+        </div>
+        <div>
+          <label class="field-label">3rd place pts</label>
+          <input type="number" class="input" id="cfg-daily-3" min="0" placeholder="15">
+        </div>
+        <div class="cat-desc">Top 3 by playtime each 24h window get points. Tied players all get full points. The 24h window starts from the game start time so it's the same for all timezones.</div>
+        <button class="btn btn-secondary btn-small" onclick="saveDailyConfig()">Save Daily Awards</button>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <div class="section-title">End-of-Game Bonus Awards</div>
+      <div class="game-config-form">
+        <div class="cat-desc">Set the points awarded to top 3 on each leaderboard at game end. The Overall bonus uses tiebreaks <b>after</b> all sub-board and tease bonuses are applied, so points correctly affect Overall ranks.</div>
+
+        <label class="field-label">Overall (1st / 2nd / 3rd)</label>
+        <div class="input-row">
+          <input type="number" class="input" id="cfg-eg-overall-1" min="0" placeholder="200">
+          <input type="number" class="input" id="cfg-eg-overall-2" min="0" placeholder="120">
+        </div>
+        <input type="number" class="input" id="cfg-eg-overall-3" min="0" placeholder="60" style="margin-bottom:0.5rem">
+
+        <label class="field-label">Sub-boards (Denial/Orgasm/Toy Time + Edge/Orgasm Count)</label>
+        <div class="input-row">
+          <input type="number" class="input" id="cfg-eg-sub-1" min="0" placeholder="75">
+          <input type="number" class="input" id="cfg-eg-sub-2" min="0" placeholder="45">
+        </div>
+        <input type="number" class="input" id="cfg-eg-sub-3" min="0" placeholder="20" style="margin-bottom:0.5rem">
+
+        <label class="field-label">Toy Tease leaderboard</label>
+        <div class="input-row">
+          <input type="number" class="input" id="cfg-eg-tease-1" min="0" placeholder="100">
+          <input type="number" class="input" id="cfg-eg-tease-2" min="0" placeholder="60">
+        </div>
+        <input type="number" class="input" id="cfg-eg-tease-3" min="0" placeholder="30" style="margin-bottom:0.5rem">
+
+        <button class="btn btn-secondary btn-small" onclick="saveEndGameConfig()">Save End-of-Game Awards</button>
+      </div>
+
+      <div style="margin-top:1rem;border-top:1px solid var(--border);padding-top:1rem">
+        <div class="section-title" style="margin-bottom:0.5rem">Apply End-of-Game Bonuses</div>
+        <div id="endgame-status"></div>
+        <div class="admin-action-bar" style="margin-top:0.6rem">
+          <button class="btn btn-submit btn-small" onclick="previewEndGameAwards()">📋 Preview Bonuses</button>
+          <button class="btn btn-danger btn-small hidden" id="btn-reset-bonuses" onclick="resetEndGameBonuses()">↺ Reset Bonuses</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <div class="section-title">Task Library (<span id="task-lib-count">0</span>)</div>
+      <div class="game-config-form">
+        <div>
+          <label class="field-label">Title</label>
+          <input type="text" class="input" id="new-task-title" placeholder="e.g. The 5-minute edge">
+        </div>
+        <div>
+          <label class="field-label">Description</label>
+          <textarea class="input" id="new-task-desc" placeholder="Edge yourself for 5 minutes straight without going over..."></textarea>
+        </div>
+        <div class="input-row">
+          <div>
+            <label class="field-label">Points value</label>
+            <input type="number" class="input" id="new-task-points" min="1" placeholder="10">
+          </div>
+          <div>
+            <label class="field-label">Tag</label>
+            <select class="input" id="new-task-tag">
+              <option value="general">🌐 General</option>
+              <option value="bdsm">⛓️ BDSM</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-secondary btn-small" onclick="addTaskTemplate()">+ Add Task</button>
+      </div>
+      <div style="margin-top:1rem">
+        <div id="task-lib-list"></div>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <div class="section-title">Active Tasks (<span id="active-task-count">0</span>)</div>
+      <div class="cat-desc">Tasks currently spawned or claimed. Use revoke to take back points from completed tasks.</div>
+      <div id="admin-active-tasks"></div>
+      <div class="admin-action-bar" style="margin-top:0.5rem">
+        <button class="btn btn-secondary btn-small" onclick="manualSpawnTask()">⚡ Spawn (any)</button>
+        <button class="btn btn-secondary btn-small" onclick="manualSpawnTask('general')">⚡ Spawn General</button>
+        <button class="btn btn-secondary btn-small" onclick="manualSpawnTask('bdsm')">⚡ Spawn BDSM</button>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <div class="section-title">Manual Point Adjustments</div>
+      <div class="cat-desc">Award or deduct points for any reason — extra effort, server-side tasks, corrections. Reason is admin-only and not shown to the player.</div>
+      <div class="game-config-form">
+        <div>
+          <label class="field-label">Player</label>
+          <select class="input" id="adj-user"></select>
+        </div>
+        <div class="input-row">
+          <div>
+            <label class="field-label">Points (+/−)</label>
+            <input type="number" class="input" id="adj-points" placeholder="e.g. 25 or -10">
+          </div>
+          <div>
+            <label class="field-label">Reason (optional)</label>
+            <input type="text" class="input" id="adj-reason" placeholder="e.g. helped new player">
+          </div>
+        </div>
+        <button class="btn btn-secondary btn-small" onclick="addManualAdjustment()">Apply Adjustment</button>
+      </div>
+      <div style="margin-top:1rem">
+        <div id="adjustments-list"></div>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <div class="section-title">Transfer to Main Leaderboard</div>
+      <div class="cat-desc">When you've added points from this game to the external monthly leaderboard, take a snapshot here so they aren't double-counted next time.</div>
+
+      <div id="transfer-lock-banner"></div>
+
+      <div id="transfer-table" style="margin-bottom:1rem"></div>
+
+      <div class="admin-action-bar" id="transfer-actions">
+        <button class="btn btn-submit btn-small" id="btn-prepare-transfer" onclick="prepareTransfer()">🔒 Prepare Transfer</button>
+        <button class="btn btn-secondary btn-small hidden" id="btn-view-pending" onclick="showTransferModal()">📋 View pending list</button>
+        <button class="btn btn-submit btn-small hidden" id="btn-confirm-transfer" onclick="confirmTransferComplete()">✓ Confirm complete</button>
+        <button class="btn btn-danger btn-small hidden" id="btn-cancel-transfer" onclick="cancelTransfer()">✗ Cancel transfer</button>
+      </div>
+
+      <div style="margin-top:1rem">
+        <div class="section-title" style="margin-bottom:0.5rem">Transfer history</div>
+        <div id="transfer-history"></div>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <div class="section-title">Data Management</div>
+      <div class="admin-action-bar">
+        <button class="btn btn-secondary btn-small" onclick="exportBackup()">📦 Export Backup</button>
+        <button class="btn btn-secondary btn-small" onclick="document.getElementById('import-file').click()">📥 Import Backup</button>
+        <input type="file" id="import-file" accept=".json" style="display:none" onchange="importBackup(event)">
+        <button class="btn btn-danger btn-small" onclick="resetGame()">🔄 Reset Game</button>
+      </div>
+      <div class="cat-desc">Backups download as JSON. Import will replace all current data — confirm before importing.</div>
+    </div>
+
+    <div class="admin-section">
+      <div class="section-title">Players (<span id="player-count">0</span>)</div>
+      <div id="admin-users"></div>
+    </div>
+
+    <div class="admin-section">
+      <div class="section-title">Recent Sessions (<span id="session-count">0</span>)</div>
+      <div id="admin-sessions"></div>
+    </div>
+  </div>
+
+  <footer class="app-footer">
+    <span class="app-version">v28.0</span>
+  </footer>
+</div>
+
+<div class="modal-overlay hidden" id="confirm-modal">
+  <div class="modal">
+    <h2 id="confirm-title">Confirm</h2>
+    <p id="confirm-message" style="font-size:0.85rem;line-height:1.5;text-align:center;margin-bottom:0.5rem;color:var(--text)"></p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="confirm-cancel">Cancel</button>
+      <button class="btn btn-danger" id="confirm-ok">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="edit-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeEdit()">×</button>
+    <h2>Edit Session</h2>
+    <div class="modal-row">
+      <label class="field-label">Mode</label>
+      <select class="input" id="edit-mode">
+        <option value="denial">🔒 Denial</option>
+        <option value="orgasm">💦 Orgasm</option>
+        <option value="tease">🌶️ Tease</option>
+      </select>
+    </div>
+    <div class="modal-row">
+      <label class="field-label">Duration (minutes)</label>
+      <input type="number" class="input" id="edit-mins" min="1" max="600">
+    </div>
+    <div class="input-row">
+      <div class="modal-row">
+        <label class="field-label">Edges</label>
+        <input type="number" class="input" id="edit-edges" min="0">
+      </div>
+      <div class="modal-row">
+        <label class="field-label">Orgasms</label>
+        <input type="number" class="input" id="edit-orgs" min="0">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeEdit()">Cancel</button>
+      <button class="btn btn-submit" onclick="saveEdit()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="transfer-modal">
+  <div class="modal" style="max-width:500px;max-height:85vh;overflow-y:auto">
+    <button class="modal-close" onclick="closeTransferModal()">×</button>
+    <h2>📋 Pending Transfer</h2>
+    <div id="transfer-modal-body"></div>
+    <div class="modal-actions" style="flex-wrap:wrap">
+      <button class="btn btn-secondary btn-small" onclick="copyTransferList()">📋 Copy list</button>
+      <button class="btn btn-secondary btn-small" onclick="closeTransferModal()">Close</button>
+    </div>
+    <div class="modal-actions" style="margin-top:0.5rem">
+      <button class="btn btn-danger" onclick="cancelTransfer()">Cancel Transfer</button>
+      <button class="btn btn-submit" onclick="confirmTransferComplete()">✓ I've transferred these</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="endgame-modal">
+  <div class="modal" style="max-width:500px;max-height:85vh;overflow-y:auto">
+    <button class="modal-close" onclick="closeEndGameModal()">×</button>
+    <h2>End-of-Game Bonuses Preview</h2>
+    <div style="font-size:0.7rem;color:var(--muted);margin-bottom:0.8rem;line-height:1.5">Sub-board and Tease bonuses are awarded first. Then the Overall ranking is finalised using the updated points totals as the tiebreaker, and Overall bonuses are awarded last.</div>
+    <div id="endgame-preview-content"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeEndGameModal()">Cancel</button>
+      <button class="btn btn-submit" id="btn-confirm-endgame" onclick="applyEndGameAwards()">✓ Apply Bonuses</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Lovense toy list — current product range, with v2/v3 variants folded into single entries.
+var LOVENSE_TOYS = [
+  'Lush (G-spot egg vibrator)',
+  'Lush Mini',
+  'Lush Anal',
+  'Hush (anal plug)',
+  'Edge (prostate massager)',
+  'Nora (rabbit vibrator)',
+  'Max (male masturbator)',
+  'Gush (male masturbator)',
+  'Solace (thrusting stroker)',
+  'Domi (wand)',
+  'Ambi (bullet)',
+  'Osci (G-spot oscillator)',
+  'Diamo (cock ring)',
+  'Ferri (clit vibrator)',
+  'Tenera (clit suction)',
+  'Exomoon (clit vibrator)',
+  'Gemini (nipple clamps)',
+  'Ridge (anal vibrator)',
+  'Lapis (strapless strap-on)',
+  'Vulse (thrusting egg)',
+  'Kraken (grinding pad)',
+  'Mission (G-spot dildo)',
+  'Calor (warming masturbator)',
+  'Mini Sex Machine',
+  'Spinel (thrusting dildo)',
+  'Gravity (thrusting vibrator)',
+  'Velvo (rabbit)',
+  'Other (non-Lovense)'
+];
+
+var MODES = {
+  denial: { label: 'Denial', color: '#4db8ff', icon: '🔒' },
+  orgasm: { label: 'Orgasm', color: '#ff6eb4', icon: '💦' },
+  tease: { label: 'Tease', color: '#ff9f43', icon: '🌶️' }
+};
+
+var ADMIN_PASSWORD = 'spicy2026';
+
+// Default game config — admin-set in real version
+var defaultStart = new Date();
+defaultStart.setHours(0, 0, 0, 0);
+var defaultEnd = new Date(defaultStart);
+defaultEnd.setDate(defaultEnd.getDate() + 7); // default 1 week game
+
+var state = {
+  currentUser: null,
+  isAdmin: false,
+  config: {
+    name: 'The Play Race',
+    subtitle: 'Who will be the horniest?',
+    startDate: defaultStart.getTime(),
+    endDate: defaultEnd.getTime(),
+    tasksPerDay: 4,
+    claimWindowMins: 60,
+    dailyAwards: { first: 50, second: 30, third: 15 },
+    endGameAwards: {
+      overall:   { first: 200, second: 120, third: 60 },
+      subboards: { first: 75,  second: 45,  third: 20 },
+      tease:     { first: 100, second: 60,  third: 30 }
+    }
+  },
+  endGameAwardsApplied: false,
+  endGameBonuses: [], // {user, points, board, place}
+  users: [
+    { name: 'VelvetDreamer', isAdmin: false, banned: false },
+    { name: 'PixelWitch99', isAdmin: false, banned: false },
+    { name: 'SlowBurnSam', isAdmin: true, banned: false },
+    { name: 'ToyCollector', isAdmin: false, banned: false },
+    { name: 'EdgeLordSupreme', isAdmin: false, banned: false },
+    { name: 'NightOwlNova', isAdmin: false, banned: false },
+    { name: 'SilkRopeRita', isAdmin: false, banned: false },
+    { name: 'GentleStormm', isAdmin: false, banned: false },
+    { name: 'WhisperWillow', isAdmin: false, banned: false },
+    { name: 'CuriousPirate', isAdmin: false, banned: false }
+  ],
+  sessions: [],
+  activeTimer: null,
+  taskLibrary: [
+    { id: 't1', title: 'The 5-minute edge', description: 'Edge yourself for 5 minutes straight without going over. Reset and try again if you tip too far.', points: 10, tag: 'general' },
+    { id: 't2', title: 'Toy roulette', description: 'Pick a toy you haven\'t used today and use it for at least 15 minutes.', points: 15, tag: 'general' },
+    { id: 't3', title: 'Slow burn', description: 'Spend 30 minutes at the lowest possible intensity setting on your toy.', points: 20, tag: 'general' },
+    { id: 't4', title: 'Three-edge tease', description: 'Bring yourself to the edge three separate times within a single session.', points: 15, tag: 'general' },
+    { id: 't5', title: 'Hold for ten', description: 'Stay right on the edge of orgasm for 10 seconds. Then back off.', points: 12, tag: 'general' },
+    { id: 't6', title: 'Public pulse', description: 'Use a remote-controlled toy in a quasi-public space (your back garden, balcony, etc.) for 5 minutes.', points: 25, tag: 'general' },
+    { id: 't7', title: 'Locked and longing', description: 'Spend 30 minutes denied while restrained (cuffs, rope, or improvised).', points: 25, tag: 'bdsm' },
+    { id: 't8', title: 'Counted strokes', description: 'Self-spank or impact 20 times before being allowed to touch yourself.', points: 20, tag: 'bdsm' }
+  ],
+  taskInstances: [],
+  failedClaims: [],
+  dailyAwards: [],
+  taskActivity: [],
+  // Manual point adjustments by admin (positive or negative)
+  manualAdjustments: [],
+  // Snapshots of points transferred to external leaderboard
+  transferSnapshots: [],
+  // Pending transfer (lock state). When non-null, a transfer is in progress.
+  // { startedAt, startedBy, frozenAmounts: { user: untransferredAtLockTime } }
+  pendingTransfer: null
+};
+
+function seedDemoSessions() {
+  var now = Date.now();
+  var seed = [
+    { user: 'VelvetDreamer', mode: 'denial', mins: 95, edges: 8, orgs: 0, toy: 'Lush (G-spot egg vibrator)' },
+    { user: 'VelvetDreamer', mode: 'denial', mins: 110, edges: 12, orgs: 0, toy: 'Lush (G-spot egg vibrator)' },
+    { user: 'VelvetDreamer', mode: 'denial', mins: 80, edges: 6, orgs: 0, toy: null },
+    { user: 'VelvetDreamer', mode: 'denial', mins: 75, edges: 5, orgs: 0, toy: 'Domi (wand)' },
+    { user: 'VelvetDreamer', mode: 'denial', mins: 90, edges: 9, orgs: 0, toy: null },
+    { user: 'VelvetDreamer', mode: 'denial', mins: 60, edges: 4, orgs: 0, toy: 'Lush (G-spot egg vibrator)' },
+    { user: 'PixelWitch99', mode: 'orgasm', mins: 45, edges: 0, orgs: 3, toy: 'Tenera (clit suction)' },
+    { user: 'PixelWitch99', mode: 'orgasm', mins: 60, edges: 0, orgs: 4, toy: 'Tenera (clit suction)' },
+    { user: 'PixelWitch99', mode: 'orgasm', mins: 35, edges: 0, orgs: 2, toy: 'Domi (wand)' },
+    { user: 'PixelWitch99', mode: 'orgasm', mins: 50, edges: 0, orgs: 3, toy: 'Tenera (clit suction)' },
+    { user: 'PixelWitch99', mode: 'orgasm', mins: 70, edges: 1, orgs: 5, toy: 'Lush (G-spot egg vibrator)' },
+    { user: 'PixelWitch99', mode: 'orgasm', mins: 40, edges: 0, orgs: 2, toy: 'Tenera (clit suction)' },
+    { user: 'SlowBurnSam', mode: 'denial', mins: 120, edges: 7, orgs: 0, toy: null },
+    { user: 'SlowBurnSam', mode: 'denial', mins: 95, edges: 5, orgs: 0, toy: null },
+    { user: 'SlowBurnSam', mode: 'denial', mins: 110, edges: 8, orgs: 0, toy: 'Hush (anal plug)' },
+    { user: 'SlowBurnSam', mode: 'denial', mins: 100, edges: 6, orgs: 0, toy: 'Hush (anal plug)' },
+    { user: 'ToyCollector', mode: 'orgasm', mins: 45, edges: 0, orgs: 2, toy: 'Lush (G-spot egg vibrator)' },
+    { user: 'ToyCollector', mode: 'orgasm', mins: 35, edges: 0, orgs: 1, toy: 'Domi (wand)' },
+    { user: 'ToyCollector', mode: 'denial', mins: 60, edges: 4, orgs: 0, toy: 'Edge (prostate massager)' },
+    { user: 'ToyCollector', mode: 'orgasm', mins: 55, edges: 0, orgs: 3, toy: 'Solace (thrusting stroker)' },
+    { user: 'ToyCollector', mode: 'orgasm', mins: 40, edges: 0, orgs: 2, toy: 'Lush (G-spot egg vibrator)' },
+    { user: 'EdgeLordSupreme', mode: 'denial', mins: 85, edges: 14, orgs: 0, toy: 'Max (male masturbator)' },
+    { user: 'EdgeLordSupreme', mode: 'denial', mins: 90, edges: 11, orgs: 0, toy: 'Max (male masturbator)' },
+    { user: 'EdgeLordSupreme', mode: 'denial', mins: 75, edges: 9, orgs: 0, toy: 'Gush (male masturbator)' },
+    { user: 'NightOwlNova', mode: 'orgasm', mins: 50, edges: 2, orgs: 3, toy: 'Lush (G-spot egg vibrator)' },
+    { user: 'NightOwlNova', mode: 'denial', mins: 40, edges: 3, orgs: 0, toy: null },
+    { user: 'NightOwlNova', mode: 'orgasm', mins: 60, edges: 0, orgs: 4, toy: 'Lush (G-spot egg vibrator)' },
+    { user: 'SilkRopeRita', mode: 'denial', mins: 70, edges: 6, orgs: 0, toy: 'Ferri (clit vibrator)' },
+    { user: 'SilkRopeRita', mode: 'orgasm', mins: 45, edges: 1, orgs: 1, toy: 'Ferri (clit vibrator)' },
+    { user: 'GentleStormm', mode: 'denial', mins: 55, edges: 4, orgs: 0, toy: 'Domi (wand)' },
+    { user: 'GentleStormm', mode: 'denial', mins: 60, edges: 5, orgs: 0, toy: null },
+    { user: 'WhisperWillow', mode: 'orgasm', mins: 30, edges: 0, orgs: 2, toy: 'Tenera (clit suction)' },
+    { user: 'WhisperWillow', mode: 'orgasm', mins: 40, edges: 0, orgs: 2, toy: null },
+    { user: 'CuriousPirate', mode: 'denial', mins: 35, edges: 3, orgs: 0, toy: 'Lush (G-spot egg vibrator)' },
+    { user: 'CuriousPirate', mode: 'denial', mins: 50, edges: 4, orgs: 0, toy: 'Lush (G-spot egg vibrator)' },
+    // Tease sessions (these don't count toward the main boards)
+    { user: 'GentleStormm', mode: 'tease', mins: 240, edges: 0, orgs: 0, toy: 'Lush (G-spot egg vibrator)' },
+    { user: 'GentleStormm', mode: 'tease', mins: 180, edges: 0, orgs: 0, toy: 'Lush (G-spot egg vibrator)' },
+    { user: 'NightOwlNova', mode: 'tease', mins: 160, edges: 0, orgs: 0, toy: 'Hush (anal plug)' },
+    { user: 'NightOwlNova', mode: 'tease', mins: 200, edges: 0, orgs: 0, toy: 'Ferri (clit vibrator)' },
+    { user: 'WhisperWillow', mode: 'tease', mins: 90, edges: 0, orgs: 0, toy: 'Ambi (bullet)' },
+    { user: 'ToyCollector', mode: 'tease', mins: 75, edges: 0, orgs: 0, toy: 'Diamo (cock ring)' },
+    { user: 'CuriousPirate', mode: 'tease', mins: 45, edges: 0, orgs: 0, toy: 'Lush (G-spot egg vibrator)' }
+  ];
+
+  state.sessions = seed.map(function(s, i) {
+    return {
+      id: 'seed-' + i,
+      user: s.user,
+      mode: s.mode,
+      durationMins: s.mins,
+      edges: s.edges,
+      orgasms: s.orgs,
+      toy: s.toy,
+      timestamp: now - (Math.floor(i / 3) * 86400000) - (Math.random() * 12 * 3600000),
+      manual: false
+    };
+  });
+}
+seedDemoSessions();
+
+function seedDemoTasks() {
+  var now = Date.now();
+  // A few completed tasks (gives users some points to start with)
+  var lib = state.taskLibrary;
+  var completed = [
+    { user: 'VelvetDreamer', tpl: lib[0], hoursAgo: 18 },
+    { user: 'PixelWitch99', tpl: lib[2], hoursAgo: 12 },
+    { user: 'SlowBurnSam', tpl: lib[3], hoursAgo: 8 },
+    { user: 'PixelWitch99', tpl: lib[1], hoursAgo: 5 },
+    { user: 'ToyCollector', tpl: lib[4], hoursAgo: 3 }
+  ];
+  completed.forEach(function(c, i) {
+    state.taskInstances.push({
+      id: uidTask(),
+      spawnId: 'demo-c-' + i,
+      templateId: c.tpl.id,
+      title: c.tpl.title,
+      description: c.tpl.description,
+      points: c.tpl.points,
+      spawnedAt: now - (c.hoursAgo + 0.5) * 3600000,
+      status: 'completed',
+      claimedBy: c.user,
+      claimedAt: now - c.hoursAgo * 3600000,
+      completedAt: now - (c.hoursAgo - 0.2) * 3600000
+    });
+    state.taskActivity.unshift({
+      id: uidTask(),
+      text: '<b>' + escapeHtml(c.user) + '</b> completed <b>' + escapeHtml(c.tpl.title) + '</b> · +' + c.tpl.points + ' pts',
+      status: 'completed',
+      timestamp: now - (c.hoursAgo - 0.2) * 3600000
+    });
+  });
+
+  // One available task right now
+  var avail = lib[5];
+  state.taskInstances.push({
+    id: uidTask(),
+    spawnId: 'demo-a',
+    templateId: avail.id,
+    title: avail.title,
+    description: avail.description,
+    points: avail.points,
+    spawnedAt: now - 12 * 60 * 1000, // 12 mins ago
+    status: 'available',
+    claimedBy: null,
+    claimedAt: null,
+    completedAt: null
+  });
+  state.taskActivity.unshift({
+    id: uidTask(),
+    text: 'A new task spawned: <b>' + escapeHtml(avail.title) + '</b> · ' + avail.points + ' pts',
+    status: 'spawned',
+    timestamp: now - 12 * 60 * 1000
+  });
+
+  // Some demo daily awards (yesterday)
+  state.dailyAwards.push({
+    id: uidTask(),
+    user: 'VelvetDreamer',
+    points: 50,
+    place: 1,
+    windowIndex: -1,
+    windowStart: now - 86400000,
+    windowEnd: now,
+    mins: 480
+  });
+  state.dailyAwards.push({
+    id: uidTask(),
+    user: 'PixelWitch99',
+    points: 30,
+    place: 2,
+    windowIndex: -1,
+    windowStart: now - 86400000,
+    windowEnd: now,
+    mins: 350
+  });
+  state.dailyAwards.push({
+    id: uidTask(),
+    user: 'SlowBurnSam',
+    points: 15,
+    place: 3,
+    windowIndex: -1,
+    windowStart: now - 86400000,
+    windowEnd: now,
+    mins: 320
+  });
+}
+seedDemoTasks();
+
+function fmtHMS(mins) {
+  var h = Math.floor(mins / 60);
+  var m = mins % 60;
+  return h > 0 ? h + 'h ' + m + 'm' : m + 'm';
+}
+function getGameState() {
+  // Returns 'pre', 'live', or 'ended'
+  var now = Date.now();
+  if (now < state.config.startDate) return 'pre';
+  if (now >= state.config.endDate) return 'ended';
+  return 'live';
+}
+
+function fmtTimer(secs) {
+  var h = String(Math.floor(secs / 3600)).padStart(2, '0');
+  var m = String(Math.floor((secs % 3600) / 60)).padStart(2, '0');
+  var s = String(secs % 60).padStart(2, '0');
+  return h + ':' + m + ':' + s;
+}
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(function() { t.classList.remove('show'); }, 2800);
+}
+function uid() { return 's-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7); }
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, function(c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+// Custom confirm modal — replaces native confirm() which is unreliable on mobile
+function customConfirm(message, options) {
+  options = options || {};
+  return new Promise(function(resolve) {
+    var modal = document.getElementById('confirm-modal');
+    var title = document.getElementById('confirm-title');
+    var msg = document.getElementById('confirm-message');
+    var okBtn = document.getElementById('confirm-ok');
+    var cancelBtn = document.getElementById('confirm-cancel');
+
+    title.textContent = options.title || 'Confirm';
+    msg.textContent = message;
+    okBtn.textContent = options.okText || 'Confirm';
+    cancelBtn.textContent = options.cancelText || 'Cancel';
+
+    okBtn.className = 'btn ' + (options.danger === false ? 'btn-submit' : 'btn-danger');
+
+    modal.classList.remove('hidden');
+
+    function cleanup(result) {
+      modal.classList.add('hidden');
+      okBtn.onclick = null;
+      cancelBtn.onclick = null;
+      resolve(result);
+    }
+
+    okBtn.onclick = function() { cleanup(true); };
+    cancelBtn.onclick = function() { cleanup(false); };
+  });
+}
+
+function getUserStats(username) {
+  var s = state.sessions.filter(function(x) { return x.user === username; });
+  return {
+    totalMins: s.filter(function(x) { return x.mode !== 'tease'; }).reduce(function(sum, x) { return sum + x.durationMins; }, 0),
+    denialMins: s.filter(function(x) { return x.mode === 'denial'; }).reduce(function(sum, x) { return sum + x.durationMins; }, 0),
+    orgasmMins: s.filter(function(x) { return x.mode === 'orgasm'; }).reduce(function(sum, x) { return sum + x.durationMins; }, 0),
+    teaseMins: s.filter(function(x) { return x.mode === 'tease'; }).reduce(function(sum, x) { return sum + x.durationMins; }, 0),
+    // Toy time excludes tease sessions (per spec)
+    toyMins: s.filter(function(x) { return x.toy && x.mode !== 'tease'; }).reduce(function(sum, x) { return sum + x.durationMins; }, 0),
+    edges: s.reduce(function(sum, x) { return sum + (x.edges || 0); }, 0),
+    orgasms: s.reduce(function(sum, x) { return sum + (x.orgasms || 0); }, 0),
+    sessions: s.filter(function(x) { return x.mode !== 'tease'; }).length,
+    teaseSessions: s.filter(function(x) { return x.mode === 'tease'; }).length
+  };
+}
+function getActiveUsers() { return state.users.filter(function(u) { return !u.banned; }); }
+
+function renderHeader() {
+  document.getElementById('game-name').textContent = state.config.name;
+  document.getElementById('game-subtitle').textContent = state.config.subtitle;
+  document.title = state.config.name;
+  var badge = document.getElementById('game-badge');
+  if (badge) {
+    var gs = getGameState();
+    if (gs === 'pre') badge.textContent = '⏳ Coming Soon';
+    else if (gs === 'ended') badge.textContent = '🏁 Game Ended';
+    else badge.textContent = '🔥 Live Game';
+  }
+}
+
+function renderStats() {
+  // Stat cards removed in v13 — function kept as no-op to avoid breaking renderAll calls
+}
+
+function getUserPoints(username) {
+  var pts = 0;
+  state.taskInstances.forEach(function(t) {
+    if (t.status === 'completed' && t.claimedBy === username) pts += t.points;
+  });
+  state.dailyAwards.forEach(function(a) {
+    if (a.user === username) pts += a.points;
+  });
+  state.endGameBonuses.forEach(function(b) {
+    if (b.user === username) pts += b.points;
+  });
+  state.manualAdjustments.forEach(function(m) {
+    if (m.user === username) pts += m.points;
+  });
+  return pts;
+}
+
+// Points excluding the Overall end-of-game bonus (used for tie-breaking when computing Overall final ranks)
+function getUserPointsExcludingOverallBonus(username) {
+  var pts = 0;
+  state.taskInstances.forEach(function(t) {
+    if (t.status === 'completed' && t.claimedBy === username) pts += t.points;
+  });
+  state.dailyAwards.forEach(function(a) {
+    if (a.user === username) pts += a.points;
+  });
+  state.endGameBonuses.forEach(function(b) {
+    if (b.user === username && b.board !== 'overall') pts += b.points;
+  });
+  state.manualAdjustments.forEach(function(m) {
+    if (m.user === username) pts += m.points;
+  });
+  return pts;
+}
+
+// Returns total points already transferred for a given user (sum across all snapshots)
+function getUserTransferredPoints(username) {
+  var transferred = 0;
+  state.transferSnapshots.forEach(function(snap) {
+    if (snap.amounts && typeof snap.amounts[username] !== 'undefined') {
+      transferred += snap.amounts[username];
+    }
+  });
+  return transferred;
+}
+
+// Total untransferred = current total - already-transferred
+function getUserUntransferredPoints(username) {
+  return getUserPoints(username) - getUserTransferredPoints(username);
+}
+
+// Amount LOCKED in the pending transfer for this user (0 if no pending transfer or user not in it)
+function getUserLockedAmount(username) {
+  if (!state.pendingTransfer) return 0;
+  var amt = state.pendingTransfer.frozenAmounts[username];
+  return typeof amt === 'undefined' ? 0 : amt;
+}
+
+// Amount earned AFTER the lock was created (queued for next round)
+function getUserQueuedAfterLock(username) {
+  if (!state.pendingTransfer) return 0;
+  // Total untransferred minus what's currently locked = what's been earned since
+  return getUserUntransferredPoints(username) - getUserLockedAmount(username);
+}
+
+function rankWithTies(items, primaryKey, secondaryKey) {
+  // Sort by primary desc, then secondary desc
+  items.sort(function(a, b) {
+    if (b[primaryKey] !== a[primaryKey]) return b[primaryKey] - a[primaryKey];
+    if (b[secondaryKey] !== a[secondaryKey]) return b[secondaryKey] - a[secondaryKey];
+    return 0; // still tied
+  });
+  // Assign ranks (tied if both primary AND secondary are equal)
+  var rank = 0;
+  var lastP = null, lastS = null;
+  for (var i = 0; i < items.length; i++) {
+    if (items[i][primaryKey] !== lastP || items[i][secondaryKey] !== lastS) {
+      rank = i + 1;
+      lastP = items[i][primaryKey];
+      lastS = items[i][secondaryKey];
+    }
+    items[i].rank = rank;
+  }
+  return items;
+}
+
+function renderOverall() {
+  var lb = document.getElementById('leaderboard');
+  var entries = getActiveUsers()
+    .map(function(u) {
+      var stats = getUserStats(u.name);
+      return {
+        user: u,
+        stats: stats,
+        totalMins: stats.totalMins,
+        points: getUserPoints(u.name)
+      };
+    })
+    .filter(function(x) { return x.totalMins > 0 || x.points > 0; });
+
+  rankWithTies(entries, 'totalMins', 'points');
+
+  if (!entries.length) {
+    lb.innerHTML = '<div class="cat-desc" style="text-align:center;padding:2rem">No sessions logged yet — be the first!</div>';
+    return;
+  }
+
+  lb.innerHTML = entries.map(function(r) {
+    var i = r.rank - 1;
+    var rankClass = r.rank === 1 ? 'r1' : r.rank === 2 ? 'r2' : r.rank === 3 ? 'r3' : 'rn';
+    var entryClass = (r.rank === 1 ? 'top1 ' : r.rank === 2 ? 'top2 ' : r.rank === 3 ? 'top3 ' : '') + (r.user.name === state.currentUser ? 'me' : '');
+    var rankSymbol = r.rank === 1 ? '🥇' : r.rank === 2 ? '🥈' : r.rank === 3 ? '🥉' : '#' + r.rank;
+    var me = r.user.name === state.currentUser ? '<span class="me-tag">YOU</span>' : '';
+    return '<div class="entry ' + entryClass + '">' +
+      '<div class="rank ' + rankClass + '">' + rankSymbol + '</div>' +
+      '<div><div class="username">' + escapeHtml(r.user.name) + me + '</div>' +
+      '<div class="user-meta">' +
+        '<span><b>' + r.stats.sessions + '</b> sessions</span>' +
+        '<span>🔒 <b>' + fmtHMS(r.stats.denialMins) + '</b></span>' +
+        '<span>💦 <b>' + fmtHMS(r.stats.orgasmMins) + '</b></span>' +
+        (r.stats.edges ? '<span>⚡ <b>' + r.stats.edges + '</b> edges</span>' : '') +
+        (r.stats.orgasms ? '<span>✨ <b>' + r.stats.orgasms + '</b> orgs</span>' : '') +
+      '</div></div>' +
+      '<div class="points-display"><div class="points-val">' + r.points + '</div><div class="points-sub">pts</div></div>' +
+      '<div class="time-display"><div class="time-hours">' + fmtHMS(r.totalMins) + '</div><div class="time-sub">total</div></div>' +
+    '</div>';
+  }).join('');
+}
+
+function renderCategories() {
+  var sub = state.config.endGameAwards.subboards;
+  var tease = state.config.endGameAwards.tease;
+  var boards = [
+    { key: 'denial', label: '🔒 Denial Time', color: '#4db8ff', desc: 'Most time spent in denial mode', metric: 'denialMins', unit: 'time', awards: sub },
+    { key: 'orgasm', label: '💦 Orgasm Time', color: '#ff6eb4', desc: 'Most time spent in orgasm mode', metric: 'orgasmMins', unit: 'time', awards: sub },
+    { key: 'toy', label: '🎮 Toy Time', color: '#c084fc', desc: 'Most time logged using a toy (excludes Tease sessions)', metric: 'toyMins', unit: 'time', awards: sub },
+    { key: 'tease', label: '🌶️ Toy Tease Time', color: '#ff9f43', desc: 'Most time spent in Tease mode. Does not count toward any other leaderboard.', metric: 'teaseMins', unit: 'time', awards: tease },
+    { key: 'edges', label: '⚡ Edge Count', color: '#ff9f43', desc: 'Most edges tracked across all sessions', metric: 'edges', unit: 'count', awards: sub },
+    { key: 'orgs', label: '✨ Orgasm Count', color: '#00e5a0', desc: 'Most orgasms tracked across all sessions', metric: 'orgasms', unit: 'count', awards: sub }
+  ];
+
+  var html = boards.map(function(board) {
+    var ranked = getActiveUsers()
+      .map(function(u) { return { user: u, stats: getUserStats(u.name) }; })
+      .filter(function(x) { return x.stats[board.metric] > 0; })
+      .sort(function(a, b) { return b.stats[board.metric] - a.stats[board.metric]; })
+      .slice(0, 5);
+
+    if (!ranked.length) return '';
+
+    var entries = ranked.map(function(r, i) {
+      var symbol = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '#' + (i+1);
+      var cls = i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
+      var me = r.user.name === state.currentUser ? '<span class="me-tag">YOU</span>' : '';
+      var meCls = r.user.name === state.currentUser ? 'me' : '';
+      var val = board.unit === 'time' ? fmtHMS(r.stats[board.metric]) : r.stats[board.metric];
+      var rankCls = i === 0 ? 'r1' : i === 1 ? 'r2' : i === 2 ? 'r3' : 'rn';
+      return '<div class="entry ' + cls + ' ' + meCls + '">' +
+        '<div class="rank ' + rankCls + '">' + symbol + '</div>' +
+        '<div><div class="username">' + escapeHtml(r.user.name) + me + '</div></div>' +
+        '<div class="time-display"><div class="time-hours" style="color:' + board.color + '">' + val + '</div><div class="time-sub">' + (board.unit === 'time' ? 'time' : 'total') + '</div></div>' +
+      '</div>';
+    }).join('');
+
+    var bonusBadge = '';
+    if (board.awards) {
+      bonusBadge = '<div class="bonus-badge">🏆 End-of-game bonus: <b>+' + board.awards.first + '/+' + board.awards.second + '/+' + board.awards.third + ' pts</b> for top 3</div>';
+    }
+
+    return '<div class="cat-section">' +
+      '<div class="cat-header">' +
+        '<div class="cat-dot" style="background:' + board.color + '"></div>' +
+        '<div class="cat-title" style="color:' + board.color + '">' + board.label + '</div>' +
+        '<div class="cat-count">' + ranked.length + ' ranked</div>' +
+      '</div>' +
+      '<div class="cat-desc">' + board.desc + '</div>' +
+      bonusBadge +
+      '<div class="leaderboard">' + entries + '</div>' +
+    '</div>';
+  }).join('');
+
+  // Toy popularity board (server-wide) — includes tease per spec
+  html += renderToyPopularity();
+
+  document.getElementById('cat-leaderboards').innerHTML = html;
+}
+
+function renderToyPopularity() {
+  // Aggregate sessions per toy across the whole server
+  var toyStats = {};
+  var sessionsToCount = state.sessions.filter(function(s) {
+    if (!s.toy) return false;
+    // Exclude banned users from server stats
+    var u = state.users.find(function(x) { return x.name === s.user; });
+    return u && !u.banned;
+  });
+
+  sessionsToCount.forEach(function(s) {
+    if (!toyStats[s.toy]) {
+      toyStats[s.toy] = { totalMins: 0, sessions: 0, users: {} };
+    }
+    toyStats[s.toy].totalMins += s.durationMins;
+    toyStats[s.toy].sessions += 1;
+    toyStats[s.toy].users[s.user] = true;
+  });
+
+  var ranked = Object.keys(toyStats).map(function(toy) {
+    return {
+      toy: toy,
+      totalMins: toyStats[toy].totalMins,
+      sessions: toyStats[toy].sessions,
+      userCount: Object.keys(toyStats[toy].users).length
+    };
+  }).sort(function(a, b) { return b.totalMins - a.totalMins; });
+
+  if (!ranked.length) return '';
+
+  var color = '#c084fc';
+  var entries = ranked.map(function(r, i) {
+    var symbol = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '#' + (i+1);
+    var cls = i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
+    var rankCls = i === 0 ? 'r1' : i === 1 ? 'r2' : i === 2 ? 'r3' : 'rn';
+    // Strip the parenthetical from the toy name for the main display
+    var shortName = r.toy.split(' (')[0];
+    return '<div class="entry ' + cls + '">' +
+      '<div class="rank ' + rankCls + '">' + symbol + '</div>' +
+      '<div>' +
+        '<div class="username">' + escapeHtml(shortName) + '</div>' +
+        '<div class="user-meta">' +
+          '<span><b>' + r.sessions + '</b> sessions</span>' +
+          '<span><b>' + r.userCount + '</b> ' + (r.userCount === 1 ? 'user' : 'users') + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="time-display"><div class="time-hours" style="color:' + color + '">' + fmtHMS(r.totalMins) + '</div><div class="time-sub">total</div></div>' +
+    '</div>';
+  }).join('');
+
+  return '<div class="cat-section">' +
+    '<div class="cat-header">' +
+      '<div class="cat-dot" style="background:' + color + '"></div>' +
+      '<div class="cat-title" style="color:' + color + '">🎮 Toy Popularity</div>' +
+      '<div class="cat-count">' + ranked.length + ' toys</div>' +
+    '</div>' +
+    '<div class="cat-desc">Server-wide ranking of which toys are getting the most playtime</div>' +
+    '<div class="leaderboard">' + entries + '</div>' +
+  '</div>';
+}
+
+function renderHistory() {
+  if (!state.currentUser) return;
+  var mySessions = state.sessions
+    .filter(function(s) { return s.user === state.currentUser; })
+    .sort(function(a, b) { return b.timestamp - a.timestamp; })
+    .slice(0, 8);
+
+  var list = document.getElementById('history-list');
+  if (!mySessions.length) {
+    list.innerHTML = '<div class="cat-desc">No sessions yet. Start your first one above ⬆️</div>';
+    return;
+  }
+  list.innerHTML = mySessions.map(function(s) {
+    var m = MODES[s.mode];
+    var date = new Date(s.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    var meta = [];
+    if (s.toy) meta.push('🎮 ' + s.toy.split(' (')[0]);
+    if (s.edges) meta.push('⚡' + s.edges);
+    if (s.orgasms) meta.push('✨' + s.orgasms);
+    if (s.manual) meta.push('manual');
+    return '<div class="history-item"><div>' +
+      '<span class="history-mode ' + s.mode + '">' + m.icon + ' ' + m.label.toUpperCase() + '</span>' +
+      '<div class="history-meta">' + date + (meta.length ? ' · ' + meta.join(' · ') : '') + '</div>' +
+    '</div><div class="history-duration">' + fmtHMS(s.durationMins) + '</div></div>';
+  }).join('');
+}
+
+function renderAdmin() {
+  if (!state.isAdmin) return;
+  document.getElementById('player-count').textContent = state.users.length;
+  document.getElementById('session-count').textContent = state.sessions.length;
+  document.getElementById('task-lib-count').textContent = state.taskLibrary.length;
+  document.getElementById('active-task-count').textContent = state.taskInstances.filter(function(t) {
+    return t.status === 'available' || t.status === 'claimed';
+  }).length;
+
+  // Game config
+  document.getElementById('cfg-name').value = state.config.name;
+  document.getElementById('cfg-subtitle').value = state.config.subtitle;
+  document.getElementById('cfg-start').value = toLocalDatetimeInput(state.config.startDate);
+  document.getElementById('cfg-end').value = toLocalDatetimeInput(state.config.endDate);
+
+  // Task config
+  document.getElementById('cfg-tasks-per-day').value = state.config.tasksPerDay;
+  document.getElementById('cfg-claim-mins').value = state.config.claimWindowMins;
+
+  // Daily awards
+  document.getElementById('cfg-daily-1').value = state.config.dailyAwards.first;
+  document.getElementById('cfg-daily-2').value = state.config.dailyAwards.second;
+  document.getElementById('cfg-daily-3').value = state.config.dailyAwards.third;
+
+  // End-of-game awards config
+  var eg = state.config.endGameAwards;
+  document.getElementById('cfg-eg-overall-1').value = eg.overall.first;
+  document.getElementById('cfg-eg-overall-2').value = eg.overall.second;
+  document.getElementById('cfg-eg-overall-3').value = eg.overall.third;
+  document.getElementById('cfg-eg-sub-1').value = eg.subboards.first;
+  document.getElementById('cfg-eg-sub-2').value = eg.subboards.second;
+  document.getElementById('cfg-eg-sub-3').value = eg.subboards.third;
+  document.getElementById('cfg-eg-tease-1').value = eg.tease.first;
+  document.getElementById('cfg-eg-tease-2').value = eg.tease.second;
+  document.getElementById('cfg-eg-tease-3').value = eg.tease.third;
+
+  // End-of-game status
+  var statusEl = document.getElementById('endgame-status');
+  if (state.endGameAwardsApplied) {
+    var totalPts = state.endGameBonuses.reduce(function(s, b) { return s + b.points; }, 0);
+    statusEl.innerHTML = '<div style="background:rgba(0,229,160,0.08);border:1px solid rgba(0,229,160,0.3);padding:0.6rem 0.8rem;font-size:0.7rem;color:var(--green)">✓ Bonuses applied · ' + state.endGameBonuses.length + ' awards · ' + totalPts + ' total points distributed</div>';
+    document.getElementById('btn-reset-bonuses').classList.remove('hidden');
+  } else {
+    var now = Date.now();
+    var gameEnded = now >= state.config.endDate;
+    statusEl.innerHTML = '<div style="font-size:0.7rem;color:var(--muted);padding:0.4rem 0">' +
+      (gameEnded ? '✓ Game has ended — ready to apply bonuses' : '⏳ Game still running. Preview anyway to check the values.') +
+    '</div>';
+    document.getElementById('btn-reset-bonuses').classList.add('hidden');
+  }
+
+  // Task library
+  if (!state.taskLibrary.length) {
+    document.getElementById('task-lib-list').innerHTML = '<div class="cat-desc" style="padding:0.5rem">No tasks in library yet. Add one above.</div>';
+  } else {
+    document.getElementById('task-lib-list').innerHTML = state.taskLibrary.map(function(t) {
+      var tagBadge = (t.tag === 'bdsm') ?
+        ' <span style="color:#ff5c5c;font-size:0.6rem;letter-spacing:0.05em;border:1px solid #ff5c5c;padding:0.1rem 0.35rem">⛓️ BDSM</span>' :
+        ' <span style="color:var(--muted);font-size:0.6rem;letter-spacing:0.05em;border:1px solid var(--border2);padding:0.1rem 0.35rem">GENERAL</span>';
+      return '<div class="task-lib-row">' +
+        '<div>' +
+          '<div class="task-lib-title">' + escapeHtml(t.title) + tagBadge + ' <span style="color:var(--gold);font-size:0.65rem">+' + t.points + ' pts</span></div>' +
+          '<div class="task-lib-desc">' + escapeHtml(t.description) + '</div>' +
+        '</div>' +
+        '<button class="btn btn-danger btn-small" onclick="deleteTaskTemplate(\'' + t.id + '\')">Del</button>' +
+      '</div>';
+    }).join('');
+  }
+
+  // Active tasks
+  var activeAndCompleted = state.taskInstances.slice().sort(function(a, b) {
+    return (b.spawnedAt || 0) - (a.spawnedAt || 0);
+  }).slice(0, 20);
+  if (!activeAndCompleted.length) {
+    document.getElementById('admin-active-tasks').innerHTML = '<div class="cat-desc" style="padding:0.5rem">No active tasks.</div>';
+  } else {
+    document.getElementById('admin-active-tasks').innerHTML = activeAndCompleted.map(function(t) {
+      var statusColor = t.status === 'completed' ? 'var(--green)' :
+                        t.status === 'claimed' ? 'var(--blue)' :
+                        t.status === 'available' ? 'var(--purple)' :
+                        t.status === 'revoked' ? 'var(--orange)' : 'var(--muted)';
+      var meta = t.status === 'completed' ? 'by ' + escapeHtml(t.claimedBy) :
+                 t.status === 'claimed' ? 'by ' + escapeHtml(t.claimedBy) + ' · ' + fmtTaskTimeRemaining(t.claimedAt) + ' left' :
+                 t.status === 'available' ? 'spawned ' + fmtRelativeTime(t.spawnedAt) :
+                 t.status === 'revoked' ? 'revoked from ' + escapeHtml(t.claimedBy) :
+                 'pool';
+      var revokeBtn = t.status === 'completed' ?
+        '<button class="btn btn-danger btn-small" onclick="revokeTaskCompletion(\'' + t.id + '\')">Revoke</button>' : '';
+      return '<div class="admin-session-row">' +
+        '<div>' +
+          '<b>' + escapeHtml(t.title) + '</b> <span style="color:' + statusColor + ';font-size:0.6rem;letter-spacing:0.1em">[' + t.status + ']</span>' +
+          '<div class="admin-user-time">' + meta + ' · ' + t.points + ' pts</div>' +
+        '</div>' +
+        revokeBtn +
+      '</div>';
+    }).join('');
+  }
+
+  // Players
+  document.getElementById('admin-users').innerHTML = state.users.map(function(u) {
+    var stats = getUserStats(u.name);
+    var pts = getUserPoints(u.name);
+    return '<div class="admin-user-row"><div>' +
+      '<div class="admin-user-name ' + (u.banned ? 'banned' : '') + '">' + escapeHtml(u.name) + (u.isAdmin ? ' <span class="admin-user-role admin">ADMIN</span>' : '') + '</div>' +
+      '<div class="admin-user-time">' + fmtHMS(stats.totalMins) + ' · ' + stats.sessions + ' sessions · ' + pts + ' pts</div>' +
+    '</div>' +
+    '<button class="btn btn-secondary btn-small" onclick="toggleAdminRole(\'' + u.name + '\')">' + (u.isAdmin ? 'Demote' : 'Promote') + '</button>' +
+    '<button class="btn ' + (u.banned ? 'btn-secondary' : 'btn-danger') + ' btn-small" onclick="toggleBan(\'' + u.name + '\')">' + (u.banned ? 'Unban' : 'Ban') + '</button>' +
+    '</div>';
+  }).join('');
+
+  // Manual adjustments — populate user dropdown
+  var adjUserSelect = document.getElementById('adj-user');
+  if (adjUserSelect) {
+    var currentVal = adjUserSelect.value;
+    var userOpts = '<option value="">— Pick player —</option>' + state.users.map(function(u) {
+      return '<option value="' + escapeHtml(u.name) + '">' + escapeHtml(u.name) + (u.banned ? ' (banned)' : '') + '</option>';
+    }).join('');
+    adjUserSelect.innerHTML = userOpts;
+    if (currentVal) adjUserSelect.value = currentVal;
+  }
+
+  // Manual adjustments list
+  var adjListEl = document.getElementById('adjustments-list');
+  if (adjListEl) {
+    var sortedAdj = state.manualAdjustments.slice().sort(function(a, b) { return b.awardedAt - a.awardedAt; }).slice(0, 30);
+    if (!sortedAdj.length) {
+      adjListEl.innerHTML = '<div class="cat-desc" style="padding:0.5rem">No manual adjustments yet.</div>';
+    } else {
+      adjListEl.innerHTML = sortedAdj.map(function(a) {
+        var date = new Date(a.awardedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        var sign = a.points > 0 ? '+' : '';
+        return '<div class="adj-row"><div>' +
+          '<b>' + escapeHtml(a.user) + '</b>' +
+          (a.reason ? '<div class="adj-reason">' + escapeHtml(a.reason) + '</div>' : '') +
+          '<div class="adj-meta">By ' + escapeHtml(a.awardedBy || '?') + ' · ' + date + '</div>' +
+        '</div>' +
+        '<div class="adj-points ' + (a.points > 0 ? 'positive' : 'negative') + '">' + sign + a.points + ' pts</div>' +
+        '<button class="btn btn-danger btn-small" onclick="removeManualAdjustment(\'' + a.id + '\')">Del</button>' +
+        '</div>';
+      }).join('');
+    }
+  }
+
+  // Transfer table
+  var transferEl = document.getElementById('transfer-table');
+  if (transferEl) {
+    var pending = state.pendingTransfer;
+
+    // Lock banner
+    var bannerEl = document.getElementById('transfer-lock-banner');
+    if (pending) {
+      var lockedTotal = Object.keys(pending.frozenAmounts).reduce(function(s, k) { return s + pending.frozenAmounts[k]; }, 0);
+      var lockedCount = Object.keys(pending.frozenAmounts).length;
+      var lockTime = new Date(pending.startedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      bannerEl.innerHTML =
+        '<div style="background:rgba(255,215,0,0.08);border:1px solid rgba(255,215,0,0.4);padding:0.7rem 0.9rem;margin-bottom:1rem;font-size:0.7rem;line-height:1.5;color:var(--text)">' +
+          '<b style="color:var(--gold)">🔒 Transfer in progress</b> · ' + lockedTotal + ' pts across ' + lockedCount + ' players locked at ' + lockTime + ' by ' + escapeHtml(pending.startedBy || '?') +
+          '<div style="font-size:0.65rem;color:var(--muted);margin-top:0.3rem">Locked values won\'t change. Any new points players earn will queue for the next round.</div>' +
+        '</div>';
+
+      // Toggle action buttons for locked state
+      document.getElementById('btn-prepare-transfer').classList.add('hidden');
+      document.getElementById('btn-view-pending').classList.remove('hidden');
+      document.getElementById('btn-confirm-transfer').classList.remove('hidden');
+      document.getElementById('btn-cancel-transfer').classList.remove('hidden');
+    } else {
+      bannerEl.innerHTML = '';
+      document.getElementById('btn-prepare-transfer').classList.remove('hidden');
+      document.getElementById('btn-view-pending').classList.add('hidden');
+      document.getElementById('btn-confirm-transfer').classList.add('hidden');
+      document.getElementById('btn-cancel-transfer').classList.add('hidden');
+    }
+
+    var rows = state.users.map(function(u) {
+      return {
+        name: u.name,
+        banned: u.banned,
+        total: getUserPoints(u.name),
+        transferred: getUserTransferredPoints(u.name),
+        locked: getUserLockedAmount(u.name),
+        queued: getUserQueuedAfterLock(u.name),
+        untransferred: getUserUntransferredPoints(u.name)
+      };
+    }).filter(function(r) { return r.total !== 0 || r.transferred !== 0; })
+      .sort(function(a, b) {
+        if (b.untransferred !== a.untransferred) return b.untransferred - a.untransferred;
+        return b.total - a.total;
+      });
+
+    if (!rows.length) {
+      transferEl.innerHTML = '<div class="cat-desc" style="padding:0.5rem">No players have points yet.</div>';
+    } else if (pending) {
+      // Locked view: show Total, Transferred, Locked, Queued
+      var html = '<div class="transfer-row header" style="grid-template-columns: 1fr auto auto auto auto">' +
+        '<div>Player</div>' +
+        '<div>Total</div>' +
+        '<div>Sent</div>' +
+        '<div>🔒 Locked</div>' +
+        '<div>Queued</div>' +
+      '</div>';
+      html += rows.map(function(r) {
+        return '<div class="transfer-row" style="grid-template-columns: 1fr auto auto auto auto">' +
+          '<div class="transfer-name">' + escapeHtml(r.name) + (r.banned ? ' <span style="color:var(--red);font-size:0.55rem">BANNED</span>' : '') + '</div>' +
+          '<div class="transfer-num total">' + r.total + '</div>' +
+          '<div class="transfer-num ' + (r.transferred ? '' : 'zero') + '">' + r.transferred + '</div>' +
+          '<div class="transfer-num ' + (r.locked === 0 ? 'zero' : 'untransferred') + '">' + (r.locked === 0 ? '—' : (r.locked > 0 ? '+' : '') + r.locked) + '</div>' +
+          '<div class="transfer-num ' + (r.queued === 0 ? 'zero' : 'untransferred') + '">' + (r.queued === 0 ? '—' : (r.queued > 0 ? '+' : '') + r.queued) + '</div>' +
+        '</div>';
+      }).join('');
+      transferEl.innerHTML = html;
+    } else {
+      // Normal view: Total, Transferred, To transfer
+      var html2 = '<div class="transfer-row header">' +
+        '<div>Player</div>' +
+        '<div>Total</div>' +
+        '<div>Sent</div>' +
+        '<div>To transfer</div>' +
+      '</div>';
+      html2 += rows.map(function(r) {
+        var untransClass = r.untransferred === 0 ? 'done' : 'untransferred';
+        return '<div class="transfer-row">' +
+          '<div class="transfer-name">' + escapeHtml(r.name) + (r.banned ? ' <span style="color:var(--red);font-size:0.55rem">BANNED</span>' : '') + '</div>' +
+          '<div class="transfer-num total">' + r.total + '</div>' +
+          '<div class="transfer-num ' + (r.transferred ? '' : 'zero') + '">' + r.transferred + '</div>' +
+          '<div class="transfer-num ' + untransClass + '">' + (r.untransferred === 0 ? '✓' : (r.untransferred > 0 ? '+' : '') + r.untransferred) + '</div>' +
+        '</div>';
+      }).join('');
+      transferEl.innerHTML = html2;
+    }
+  }
+
+  // Transfer history
+  var historyEl = document.getElementById('transfer-history');
+  if (historyEl) {
+    if (!state.transferSnapshots.length) {
+      historyEl.innerHTML = '<div class="cat-desc" style="padding:0.5rem">No transfers yet.</div>';
+    } else {
+      var sortedSnaps = state.transferSnapshots.slice().sort(function(a, b) { return b.timestamp - a.timestamp; });
+      historyEl.innerHTML = sortedSnaps.map(function(snap) {
+        var date = new Date(snap.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        return '<div class="history-snapshot">' +
+          '<div><b>' + snap.totalAmount + ' pts</b> across ' + snap.playerCount + ' player' + (snap.playerCount === 1 ? '' : 's') + ' marked as transferred</div>' +
+          '<div class="history-snapshot-meta" style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem">' +
+            '<span>By ' + escapeHtml(snap.admin || '?') + ' · ' + date + '</span>' +
+            '<button class="btn btn-danger btn-small" onclick="deleteTransferSnapshot(\'' + snap.id + '\')">Undo</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+  }
+
+  var recent = state.sessions.slice().sort(function(a, b) { return b.timestamp - a.timestamp; }).slice(0, 30);
+  document.getElementById('admin-sessions').innerHTML = recent.map(function(s) {
+    var m = MODES[s.mode];
+    var date = new Date(s.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return '<div class="admin-session-row"><div>' +
+      '<b>' + escapeHtml(s.user) + '</b> · <span style="color:' + m.color + '">' + m.icon + ' ' + m.label + '</span>' +
+      '<div class="admin-user-time">' + date + ' · ' + fmtHMS(s.durationMins) + (s.edges ? ' · ⚡' + s.edges : '') + (s.orgasms ? ' · ✨' + s.orgasms : '') + (s.toy ? ' · 🎮' : '') + (s.manual ? ' · manual' : '') + '</div>' +
+    '</div>' +
+    '<button class="btn btn-secondary btn-small" onclick="openEdit(\'' + s.id + '\')">Edit</button>' +
+    '<button class="btn btn-danger btn-small" onclick="deleteSession(\'' + s.id + '\')">Del</button>' +
+    '</div>';
+  }).join('');
+}
+
+function toLocalDatetimeInput(ts) {
+  var d = new Date(ts);
+  var pad = function(n) { return String(n).padStart(2, '0'); };
+  return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+
+// =========== TASKS SYSTEM ===========
+
+function uidTask() { return 'task-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7); }
+
+// BDSM opt-in - per user, stored in localStorage
+function getBdsmOptIn(username) {
+  if (!username) return false;
+  return localStorage.getItem('mm-bdsm-' + username) === '1';
+}
+function setBdsmOptIn(username, optIn) {
+  if (!username) return;
+  if (optIn) {
+    localStorage.setItem('mm-bdsm-' + username, '1');
+  } else {
+    localStorage.removeItem('mm-bdsm-' + username);
+  }
+}
+function toggleBdsmOptIn() {
+  var current = getBdsmOptIn(state.currentUser);
+  setBdsmOptIn(state.currentUser, !current);
+  showToast(!current ? '🔓 BDSM tasks unlocked' : '🔒 BDSM tasks hidden');
+  renderTasks();
+  renderAll();
+}
+
+function logTaskActivity(text, status) {
+  state.taskActivity.unshift({
+    id: uidTask(),
+    text: text,
+    status: status,
+    timestamp: Date.now()
+  });
+  // Keep last 50
+  if (state.taskActivity.length > 50) state.taskActivity = state.taskActivity.slice(0, 50);
+}
+
+// Determines the random spawn schedule for a 24h day from game start.
+// Uses a deterministic seed based on day index so all clients agree.
+function getSpawnTimesForDay(dayIndex) {
+  if (state.config.tasksPerDay <= 0) return [];
+  var dayStart = state.config.startDate + (dayIndex * 86400000);
+  var seed = dayIndex * 9301 + 49297; // simple deterministic seed
+  function pseudoRandom() {
+    seed = (seed * 9301 + 49297) % 233280;
+    return seed / 233280;
+  }
+  var times = [];
+  for (var i = 0; i < state.config.tasksPerDay; i++) {
+    var offsetMs = Math.floor(pseudoRandom() * 86400000);
+    times.push(dayStart + offsetMs);
+  }
+  return times.sort(function(a, b) { return a - b; });
+}
+
+// Spawn any tasks whose scheduled time has passed but haven't been spawned yet
+function checkAndSpawnTasks() {
+  var now = Date.now();
+  if (now < state.config.startDate || now >= state.config.endDate) return;
+  if (state.config.tasksPerDay <= 0) return;
+  if (!state.taskLibrary.length) return;
+
+  var daysSinceStart = Math.floor((now - state.config.startDate) / 86400000);
+  // Check today and yesterday in case we missed any
+  for (var d = Math.max(0, daysSinceStart - 1); d <= daysSinceStart; d++) {
+    var spawnTimes = getSpawnTimesForDay(d);
+    for (var i = 0; i < spawnTimes.length; i++) {
+      var spawnTime = spawnTimes[i];
+      if (spawnTime > now) continue;
+      var spawnId = 'spawn-' + d + '-' + i;
+      var alreadySpawned = state.taskInstances.some(function(t) { return t.spawnId === spawnId; });
+      if (alreadySpawned) continue;
+
+      // Option B: ensure at least one General task is always available
+      // Check current pool — if no General task is available, force this one to be General
+      var generalAvailable = state.taskInstances.some(function(t) {
+        return t.status === 'available' && (!t.tag || t.tag === 'general');
+      });
+
+      var generalTemplates = state.taskLibrary.filter(function(t) { return !t.tag || t.tag === 'general'; });
+      var bdsmTemplates = state.taskLibrary.filter(function(t) { return t.tag === 'bdsm'; });
+
+      var template;
+      if (!generalAvailable && generalTemplates.length > 0) {
+        // Force a General task to ensure opted-out users always have something
+        template = generalTemplates[Math.floor(Math.random() * generalTemplates.length)];
+      } else {
+        // Pick freely from the whole library
+        template = state.taskLibrary[Math.floor(Math.random() * state.taskLibrary.length)];
+      }
+
+      state.taskInstances.push({
+        id: uidTask(),
+        spawnId: spawnId,
+        templateId: template.id,
+        title: template.title,
+        description: template.description,
+        points: template.points,
+        tag: template.tag || 'general',
+        spawnedAt: spawnTime,
+        status: 'available',
+        claimedBy: null,
+        claimedAt: null,
+        completedAt: null
+      });
+      var tagLabel = (template.tag === 'bdsm') ? ' [BDSM]' : '';
+      logTaskActivity('A new task spawned: <b>' + escapeHtml(template.title) + '</b>' + tagLabel + ' · ' + template.points + ' pts', 'spawned');
+    }
+  }
+}
+
+// Auto-fail claimed tasks past their claim window
+function checkExpiredClaims() {
+  var now = Date.now();
+  var windowMs = state.config.claimWindowMins * 60 * 1000;
+  state.taskInstances.forEach(function(t) {
+    if (t.status === 'claimed' && (now - t.claimedAt) > windowMs) {
+      // Auto-fail
+      t.status = 'available';
+      // Lock this user from re-claiming this instance
+      state.failedClaims.push({ user: t.claimedBy, taskInstanceId: t.id });
+      logTaskActivity('<b>' + escapeHtml(t.claimedBy) + '</b> ran out of time on <b>' + escapeHtml(t.title) + '</b>', 'failed');
+      t.claimedBy = null;
+      t.claimedAt = null;
+    }
+  });
+}
+
+function userHasFailedTask(username, taskInstanceId) {
+  return state.failedClaims.some(function(f) {
+    return f.user === username && f.taskInstanceId === taskInstanceId;
+  });
+}
+
+function getMyActiveTask() {
+  if (!state.currentUser) return null;
+  return state.taskInstances.find(function(t) {
+    return t.status === 'claimed' && t.claimedBy === state.currentUser;
+  });
+}
+
+function getAvailableTasks() {
+  return state.taskInstances.filter(function(t) {
+    return t.status === 'available';
+  }).sort(function(a, b) { return b.spawnedAt - a.spawnedAt; });
+}
+
+async function claimTask(id) {
+  var gs = getGameState();
+  if (gs === 'pre') { showToast('Game hasn\'t started yet'); return; }
+  if (gs === 'ended') { showToast('Game has ended'); return; }
+  var task = state.taskInstances.find(function(t) { return t.id === id; });
+  if (!task || task.status !== 'available') {
+    showToast('Task no longer available');
+    renderTasks();
+    return;
+  }
+  if (userHasFailedTask(state.currentUser, id)) {
+    showToast('You can\'t reclaim this task instance');
+    return;
+  }
+  if (getMyActiveTask()) {
+    showToast('Finish your current task first');
+    return;
+  }
+  task.status = 'claimed';
+  task.claimedBy = state.currentUser;
+  task.claimedAt = Date.now();
+  logTaskActivity('<b>' + escapeHtml(state.currentUser) + '</b> claimed <b>' + escapeHtml(task.title) + '</b>', 'claimed');
+  showToast('✓ Task claimed — you have ' + state.config.claimWindowMins + ' mins!');
+  renderAll();
+}
+
+async function completeTask(id) {
+  var task = state.taskInstances.find(function(t) { return t.id === id; });
+  if (!task || task.status !== 'claimed' || task.claimedBy !== state.currentUser) return;
+  var ok = await customConfirm('Mark this task as complete? You\'ll get ' + task.points + ' points. (Posting proof in the server is encouraged where possible)', { title: 'Complete Task', okText: 'Mark Complete', danger: false });
+  if (!ok) return;
+  task.status = 'completed';
+  task.completedAt = Date.now();
+  logTaskActivity('<b>' + escapeHtml(state.currentUser) + '</b> completed <b>' + escapeHtml(task.title) + '</b> · +' + task.points + ' pts', 'completed');
+  showToast('🎉 +' + task.points + ' points!');
+  renderAll();
+}
+
+async function giveUpTask(id) {
+  var task = state.taskInstances.find(function(t) { return t.id === id; });
+  if (!task || task.status !== 'claimed' || task.claimedBy !== state.currentUser) return;
+  var ok = await customConfirm('Give up this task? It will return to the pool but you can\'t reclaim this instance.', { title: 'Give Up', okText: 'Give Up' });
+  if (!ok) return;
+  state.failedClaims.push({ user: state.currentUser, taskInstanceId: task.id });
+  logTaskActivity('<b>' + escapeHtml(state.currentUser) + '</b> gave up on <b>' + escapeHtml(task.title) + '</b>', 'failed');
+  task.status = 'available';
+  task.claimedBy = null;
+  task.claimedAt = null;
+  showToast('Task returned to pool');
+  renderAll();
+}
+
+function fmtTaskTimeRemaining(claimedAt) {
+  var elapsed = Date.now() - claimedAt;
+  var windowMs = state.config.claimWindowMins * 60 * 1000;
+  var remaining = windowMs - elapsed;
+  if (remaining <= 0) return '0:00';
+  var mins = Math.floor(remaining / 60000);
+  var secs = Math.floor((remaining % 60000) / 1000);
+  return mins + ':' + String(secs).padStart(2, '0');
+}
+
+function fmtRelativeTime(ts) {
+  var diff = Date.now() - ts;
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+  return Math.floor(diff / 86400000) + 'd ago';
+}
+
+function renderTasks() {
+  if (!state.currentUser) return;
+
+  var bdsmOptedIn = getBdsmOptIn(state.currentUser);
+
+  // BDSM toggle / status banner at top of available tasks section
+  var toggleEl = document.getElementById('bdsm-toggle');
+  if (toggleEl) {
+    if (bdsmOptedIn) {
+      toggleEl.innerHTML =
+        '<div class="bdsm-toggle-bar opted-in">' +
+          '<div><span class="bdsm-icon">⛓️</span> <b>BDSM tasks unlocked</b> · you can see and claim BDSM-tagged tasks</div>' +
+          '<button class="btn btn-secondary btn-small" onclick="toggleBdsmOptIn()">Hide BDSM</button>' +
+        '</div>';
+    } else {
+      toggleEl.innerHTML =
+        '<div class="bdsm-toggle-bar opted-out">' +
+          '<div><span class="bdsm-icon">🌐</span> Showing General tasks only · BDSM tasks are hidden</div>' +
+          '<button class="btn btn-secondary btn-small" onclick="toggleBdsmOptIn()">Unlock BDSM</button>' +
+        '</div>';
+    }
+  }
+
+  // My active task
+  var myTask = getMyActiveTask();
+  var wrap = document.getElementById('my-active-task-wrap');
+  if (myTask) {
+    wrap.style.display = '';
+    var remaining = fmtTaskTimeRemaining(myTask.claimedAt);
+    var urgent = (Date.now() - myTask.claimedAt) > (state.config.claimWindowMins * 60 * 1000 - 300000);
+    var bdsmTag = (myTask.tag === 'bdsm') ? '<span class="bdsm-task-tag">⛓️ BDSM</span>' : '';
+    document.getElementById('my-active-task').innerHTML =
+      '<div class="task-active-title">' + escapeHtml(myTask.title) + ' ' + bdsmTag + '</div>' +
+      '<div class="task-active-desc">' + escapeHtml(myTask.description) + '</div>' +
+      '<div class="task-active-meta">' +
+        '<span class="task-points-badge">+' + myTask.points + ' PTS</span>' +
+        '<span class="task-timer-badge ' + (urgent ? 'urgent' : '') + '">⏱ ' + remaining + ' left</span>' +
+      '</div>' +
+      '<div class="task-actions">' +
+        '<button class="btn btn-submit" onclick="completeTask(\'' + myTask.id + '\')">Mark Complete</button>' +
+        '<button class="btn btn-secondary btn-small" onclick="giveUpTask(\'' + myTask.id + '\')">Give Up</button>' +
+      '</div>';
+  } else {
+    wrap.style.display = 'none';
+  }
+
+  // Available tasks — count includes BDSM (so opted-out users see the locked count)
+  var available = getAvailableTasks();
+  var visibleCount = available.filter(function(t) {
+    return t.tag !== 'bdsm' || bdsmOptedIn;
+  }).length;
+  var lockedCount = available.filter(function(t) {
+    return t.tag === 'bdsm' && !bdsmOptedIn;
+  }).length;
+
+  var countLabel = visibleCount + ' available';
+  if (lockedCount > 0 && !bdsmOptedIn) {
+    countLabel += ' · ' + lockedCount + ' locked';
+  }
+  document.getElementById('task-count').textContent = countLabel;
+
+  var availContainer = document.getElementById('available-tasks');
+  if (!available.length) {
+    availContainer.innerHTML = '<div class="cat-desc" style="text-align:center;padding:1rem">No tasks available right now. Check back soon — they spawn at random times.</div>';
+  } else {
+    availContainer.innerHTML = available.map(function(t) {
+      var isBdsm = (t.tag === 'bdsm');
+      var bdsmHidden = isBdsm && !bdsmOptedIn;
+
+      // BDSM hidden — show a locked card with "unlock" CTA, hide title and description
+      if (bdsmHidden) {
+        return '<div class="task-card task-bdsm-hidden">' +
+          '<div class="task-card-title">⛓️ BDSM Task — Locked</div>' +
+          '<div class="task-card-desc">You haven\'t opted in to BDSM tasks. Unlock to see and claim it.</div>' +
+          '<div class="task-card-bottom">' +
+            '<div class="task-card-meta">Spawned ' + fmtRelativeTime(t.spawnedAt) + '</div>' +
+            '<div style="display:flex;gap:0.5rem;align-items:center">' +
+              '<span class="task-points-badge">+' + t.points + '</span>' +
+              '<button class="btn btn-start btn-small" onclick="toggleBdsmOptIn()">Unlock BDSM</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }
+
+      var failed = userHasFailedTask(state.currentUser, t.id);
+      var gameLive = getGameState() === 'live';
+      var disabled = failed || !!myTask || !gameLive;
+      var btnText = !gameLive ? 'Locked' : failed ? '🔒 Locked' : myTask ? 'Finish current first' : 'Claim';
+      var bdsmTag = isBdsm ? '<span class="bdsm-task-tag">⛓️ BDSM</span>' : '';
+      return '<div class="task-card ' + (failed ? 'task-locked' : '') + '">' +
+        '<div class="task-card-title">' + escapeHtml(t.title) + ' ' + bdsmTag + '</div>' +
+        '<div class="task-card-desc">' + escapeHtml(t.description) + '</div>' +
+        '<div class="task-card-bottom">' +
+          '<div class="task-card-meta">Spawned ' + fmtRelativeTime(t.spawnedAt) + ' · 1 hour to complete</div>' +
+          '<div style="display:flex;gap:0.5rem;align-items:center">' +
+            '<span class="task-points-badge">+' + t.points + '</span>' +
+            '<button class="btn btn-start btn-small" onclick="claimTask(\'' + t.id + '\')" ' + (disabled ? 'disabled style="opacity:0.5;cursor:not-allowed"' : '') + '>' + btnText + '</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  // Activity log
+  var activity = state.taskActivity.slice(0, 15);
+  var activityContainer = document.getElementById('task-activity');
+  if (!activity.length) {
+    activityContainer.innerHTML = '<div class="cat-desc">No task activity yet.</div>';
+  } else {
+    activityContainer.innerHTML = activity.map(function(a) {
+      return '<div class="activity-item">' +
+        '<div class="activity-text">' + a.text + '<div class="activity-time">' + fmtRelativeTime(a.timestamp) + '</div></div>' +
+        '<div class="activity-status ' + a.status + '">' + a.status + '</div>' +
+      '</div>';
+    }).join('');
+  }
+}
+
+// =========== DAILY POINTS AWARDS ===========
+
+function checkDailyAwards() {
+  var now = Date.now();
+  if (now < state.config.startDate) return;
+
+  // How many full 24h windows have completed since start?
+  var fullDays = Math.floor((Math.min(now, state.config.endDate) - state.config.startDate) / 86400000);
+
+  for (var d = 0; d < fullDays; d++) {
+    var windowStart = state.config.startDate + (d * 86400000);
+    var windowEnd = windowStart + 86400000;
+    // Have we already awarded for this window?
+    var already = state.dailyAwards.some(function(a) { return a.windowIndex === d; });
+    if (already) continue;
+
+    // Compute playtime per user for this window (excluding tease — rules say tease only counts toward Toy Tease leaderboard)
+    var playtime = {};
+    state.sessions.forEach(function(s) {
+      if (s.mode === 'tease') return;
+      if (s.timestamp >= windowStart && s.timestamp < windowEnd) {
+        if (!playtime[s.user]) playtime[s.user] = 0;
+        playtime[s.user] += s.durationMins;
+      }
+    });
+
+    var ranked = Object.keys(playtime)
+      .map(function(u) { return { user: u, mins: playtime[u] }; })
+      .filter(function(x) {
+        var u = state.users.find(function(usr) { return usr.name === x.user; });
+        return u && !u.banned;
+      })
+      .sort(function(a, b) { return b.mins - a.mins; });
+
+    if (!ranked.length) continue;
+
+    // Group by playtime to handle ties
+    var awards = state.config.dailyAwards;
+    var tiers = [awards.first, awards.second, awards.third];
+    var place = 0;
+    var lastMins = null;
+    for (var i = 0; i < ranked.length && place < 3; i++) {
+      if (ranked[i].mins !== lastMins) {
+        // New rank — but place advances by number of people in previous tier
+        place = i;
+        lastMins = ranked[i].mins;
+      }
+      if (place >= 3) break;
+      var pts = tiers[place];
+      if (pts > 0) {
+        state.dailyAwards.push({
+          id: uidTask(),
+          user: ranked[i].user,
+          points: pts,
+          place: place + 1,
+          windowIndex: d,
+          windowStart: windowStart,
+          windowEnd: windowEnd,
+          mins: ranked[i].mins
+        });
+        var placeLabel = place === 0 ? '1st' : place === 1 ? '2nd' : '3rd';
+        logTaskActivity('<b>' + escapeHtml(ranked[i].user) + '</b> earned <b>' + pts + ' pts</b> for ' + placeLabel + ' place daily playtime (' + fmtHMS(ranked[i].mins) + ')', 'daily');
+      }
+    }
+  }
+}
+
+// =========== ADMIN: TASK LIBRARY ===========
+
+function addTaskTemplate() {
+  var title = document.getElementById('new-task-title').value.trim();
+  var desc = document.getElementById('new-task-desc').value.trim();
+  var points = parseInt(document.getElementById('new-task-points').value);
+  var tag = document.getElementById('new-task-tag').value || 'general';
+  if (!title || !desc || !points || points < 1) { showToast('Fill all fields'); return; }
+  state.taskLibrary.push({
+    id: uidTask(),
+    title: title,
+    description: desc,
+    points: points,
+    tag: tag
+  });
+  document.getElementById('new-task-title').value = '';
+  document.getElementById('new-task-desc').value = '';
+  document.getElementById('new-task-points').value = '';
+  document.getElementById('new-task-tag').value = 'general';
+  showToast('✓ Task added to library');
+  renderAdmin();
+}
+
+async function deleteTaskTemplate(id) {
+  var ok = await customConfirm('Delete this task template? Existing spawned instances are not affected.', { title: 'Delete Task', okText: 'Delete' });
+  if (!ok) return;
+  state.taskLibrary = state.taskLibrary.filter(function(t) { return t.id !== id; });
+  showToast('Task template deleted');
+  renderAdmin();
+}
+
+async function revokeTaskCompletion(id) {
+  var task = state.taskInstances.find(function(t) { return t.id === id; });
+  if (!task || task.status !== 'completed') return;
+  var ok = await customConfirm('Revoke ' + task.points + ' points from ' + task.claimedBy + ' for "' + task.title + '"? This is for suspected foul play.', { title: 'Revoke Points', okText: 'Revoke' });
+  if (!ok) return;
+  task.status = 'revoked';
+  logTaskActivity('Admin revoked <b>' + task.points + ' pts</b> from <b>' + escapeHtml(task.claimedBy) + '</b> for <b>' + escapeHtml(task.title) + '</b>', 'revoked');
+  showToast('Points revoked');
+  renderAll();
+}
+
+function manualSpawnTask(filterTag) {
+  if (!state.taskLibrary.length) { showToast('Add a task to the library first'); return; }
+  var pool = state.taskLibrary;
+  if (filterTag === 'general') pool = pool.filter(function(t) { return !t.tag || t.tag === 'general'; });
+  else if (filterTag === 'bdsm') pool = pool.filter(function(t) { return t.tag === 'bdsm'; });
+  if (!pool.length) { showToast('No tasks of that type in library'); return; }
+
+  var template = pool[Math.floor(Math.random() * pool.length)];
+  state.taskInstances.push({
+    id: uidTask(),
+    spawnId: 'manual-' + Date.now(),
+    templateId: template.id,
+    title: template.title,
+    description: template.description,
+    points: template.points,
+    tag: template.tag || 'general',
+    spawnedAt: Date.now(),
+    status: 'available',
+    claimedBy: null,
+    claimedAt: null,
+    completedAt: null
+  });
+  var tagLabel = (template.tag === 'bdsm') ? ' [BDSM]' : '';
+  logTaskActivity('Admin spawned task: <b>' + escapeHtml(template.title) + '</b>' + tagLabel, 'spawned');
+  showToast('⚡ Task spawned');
+  renderAll();
+}
+
+function saveTaskConfig() {
+  var perDay = parseInt(document.getElementById('cfg-tasks-per-day').value);
+  var window = parseInt(document.getElementById('cfg-claim-mins').value);
+  if (isNaN(perDay) || perDay < 0) { showToast('Tasks per day must be 0+'); return; }
+  if (!window || window < 5) { showToast('Claim window must be 5+ mins'); return; }
+  state.config.tasksPerDay = perDay;
+  state.config.claimWindowMins = window;
+  showToast('✓ Task config saved');
+}
+
+function saveDailyConfig() {
+  var first = parseInt(document.getElementById('cfg-daily-1').value) || 0;
+  var second = parseInt(document.getElementById('cfg-daily-2').value) || 0;
+  var third = parseInt(document.getElementById('cfg-daily-3').value) || 0;
+  state.config.dailyAwards = { first: first, second: second, third: third };
+  showToast('✓ Daily awards config saved');
+}
+
+// =========== MANUAL ADJUSTMENTS ===========
+
+function addManualAdjustment() {
+  var user = document.getElementById('adj-user').value;
+  var pointsStr = document.getElementById('adj-points').value.trim();
+  var reason = document.getElementById('adj-reason').value.trim();
+  if (!user) { showToast('Pick a player'); return; }
+  var points = parseInt(pointsStr);
+  if (isNaN(points) || points === 0) { showToast('Enter a non-zero number'); return; }
+
+  state.manualAdjustments.push({
+    id: uidTask(),
+    user: user,
+    points: points,
+    reason: reason,
+    awardedBy: state.currentUser,
+    awardedAt: Date.now()
+  });
+
+  document.getElementById('adj-points').value = '';
+  document.getElementById('adj-reason').value = '';
+  showToast((points > 0 ? '+' : '') + points + ' pts ' + (points > 0 ? 'awarded to' : 'deducted from') + ' ' + user);
+  renderAll();
+}
+
+async function removeManualAdjustment(id) {
+  var ok = await customConfirm('Remove this adjustment? The points will be reversed.', { title: 'Remove Adjustment', okText: 'Remove' });
+  if (!ok) return;
+  state.manualAdjustments = state.manualAdjustments.filter(function(a) { return a.id !== id; });
+  showToast('Adjustment removed');
+  renderAll();
+}
+
+// =========== TRANSFER SNAPSHOTS ===========
+
+// Step 1: Prepare a transfer — freeze current untransferred amounts.
+// New points earned after this point go into a "queued" bucket and will become next round's untransferred.
+async function prepareTransfer() {
+  if (state.pendingTransfer) {
+    showToast('A transfer is already in progress');
+    return;
+  }
+  // Capture current untransferred per user
+  var amounts = {};
+  var anyUntransferred = false;
+  state.users.forEach(function(u) {
+    var untr = getUserUntransferredPoints(u.name);
+    if (untr !== 0) {
+      amounts[u.name] = untr;
+      anyUntransferred = true;
+    }
+  });
+
+  if (!anyUntransferred) {
+    showToast('Nothing new to transfer');
+    return;
+  }
+
+  state.pendingTransfer = {
+    startedAt: Date.now(),
+    startedBy: state.currentUser,
+    frozenAmounts: amounts
+  };
+  showToast('🔒 Transfer locked — values are frozen');
+  renderAdmin();
+  showTransferModal();
+}
+
+function showTransferModal() {
+  if (!state.pendingTransfer) return;
+  var amounts = state.pendingTransfer.frozenAmounts;
+  var users = Object.keys(amounts).sort(function(a, b) { return amounts[b] - amounts[a]; });
+
+  // Build a copy-friendly list (text format)
+  var copyList = users.map(function(u) { return u + ': ' + (amounts[u] > 0 ? '+' : '') + amounts[u]; }).join('\n');
+  var total = users.reduce(function(s, u) { return s + amounts[u]; }, 0);
+
+  // Build HTML view
+  var rows = users.map(function(u) {
+    var v = amounts[u];
+    return '<div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:0.4rem 0.6rem;background:var(--bg3);margin-bottom:0.2rem">' +
+      '<span><b>' + escapeHtml(u) + '</b></span>' +
+      '<span style="font-family:Orbitron,monospace;color:' + (v > 0 ? 'var(--gold)' : 'var(--red)') + ';font-weight:700">' + (v > 0 ? '+' : '') + v + '</span>' +
+    '</div>';
+  }).join('');
+
+  document.getElementById('transfer-modal-body').innerHTML =
+    '<div style="font-size:0.7rem;color:var(--muted);margin-bottom:0.8rem;line-height:1.5">' +
+      'Below are the points to add to the main leaderboard. <b>These values are now frozen</b> — players can keep earning points but those won\'t change these numbers.' +
+    '</div>' +
+    '<div style="margin-bottom:1rem">' + rows + '</div>' +
+    '<div style="display:flex;justify-content:space-between;font-size:0.8rem;padding:0.4rem 0.6rem;border-top:1px solid var(--border);margin-bottom:1rem">' +
+      '<b>Total</b>' +
+      '<b style="font-family:Orbitron,monospace;color:var(--gold)">' + (total > 0 ? '+' : '') + total + ' pts across ' + users.length + ' player' + (users.length === 1 ? '' : 's') + '</b>' +
+    '</div>' +
+    '<div style="margin-bottom:1rem">' +
+      '<label class="field-label">Plain text (for copying)</label>' +
+      '<textarea class="input" readonly id="transfer-copy-text" rows="' + Math.min(users.length + 1, 10) + '" onclick="this.select()" style="font-size:0.75rem">' + escapeHtml(copyList) + '</textarea>' +
+    '</div>';
+
+  document.getElementById('transfer-modal').classList.remove('hidden');
+}
+
+function copyTransferList() {
+  var ta = document.getElementById('transfer-copy-text');
+  if (!ta) return;
+  ta.select();
+  try {
+    var ok = document.execCommand('copy');
+    if (ok) showToast('📋 Copied to clipboard');
+    else showToast('Selected — press copy on your device');
+  } catch (e) {
+    showToast('Selected — press copy on your device');
+  }
+}
+
+function closeTransferModal() {
+  document.getElementById('transfer-modal').classList.add('hidden');
+}
+
+// Step 2a: Confirm transfer is complete — take snapshot using FROZEN values
+async function confirmTransferComplete() {
+  if (!state.pendingTransfer) return;
+  closeTransferModal();
+  var ok = await customConfirm('Confirm you have added these points to the main leaderboard? This will lock them in as transferred.', { title: 'Confirm Transfer', okText: 'Yes, transferred', danger: false });
+  if (!ok) {
+    // Re-show modal so they don't lose context
+    showTransferModal();
+    return;
+  }
+
+  var pending = state.pendingTransfer;
+  var totalAmount = Object.keys(pending.frozenAmounts).reduce(function(s, k) { return s + pending.frozenAmounts[k]; }, 0);
+  var playerCount = Object.keys(pending.frozenAmounts).length;
+
+  state.transferSnapshots.push({
+    id: uidTask(),
+    timestamp: Date.now(),
+    admin: state.currentUser,
+    amounts: pending.frozenAmounts, // use frozen amounts, NOT current
+    totalAmount: totalAmount,
+    playerCount: playerCount,
+    lockedAt: pending.startedAt
+  });
+  state.pendingTransfer = null;
+  showToast('✓ Transfer recorded · ' + totalAmount + ' points marked as transferred');
+  renderAdmin();
+}
+
+// Step 2b: Cancel pending transfer — releases lock, no snapshot taken
+async function cancelTransfer() {
+  if (!state.pendingTransfer) return;
+  closeTransferModal();
+  var ok = await customConfirm('Cancel this transfer? No snapshot will be taken — all points will return to "untransferred".', { title: 'Cancel Transfer', okText: 'Cancel Transfer' });
+  if (!ok) {
+    showTransferModal();
+    return;
+  }
+  state.pendingTransfer = null;
+  showToast('Transfer cancelled — no snapshot taken');
+  renderAdmin();
+}
+
+async function deleteTransferSnapshot(id) {
+  var ok = await customConfirm('Remove this transfer snapshot? Those points will become untransferred again.', { title: 'Remove Snapshot', okText: 'Remove' });
+  if (!ok) return;
+  state.transferSnapshots = state.transferSnapshots.filter(function(s) { return s.id !== id; });
+  showToast('Snapshot removed');
+  renderAdmin();
+}
+
+function saveEndGameConfig() {
+  var read = function(id) { return parseInt(document.getElementById(id).value) || 0; };
+  state.config.endGameAwards = {
+    overall:   { first: read('cfg-eg-overall-1'), second: read('cfg-eg-overall-2'), third: read('cfg-eg-overall-3') },
+    subboards: { first: read('cfg-eg-sub-1'),     second: read('cfg-eg-sub-2'),     third: read('cfg-eg-sub-3') },
+    tease:     { first: read('cfg-eg-tease-1'),   second: read('cfg-eg-tease-2'),   third: read('cfg-eg-tease-3') }
+  };
+  showToast('✓ End-of-game awards config saved');
+  renderCategories();
+}
+
+// Computes top-3 bonuses for a single board
+function computeBoardTop3(metric, awardValues) {
+  var users = getActiveUsers();
+  var ranked = users
+    .map(function(u) { return { user: u.name, value: getUserStats(u.name)[metric] }; })
+    .filter(function(x) { return x.value > 0; })
+    .sort(function(a, b) { return b.value - a.value; });
+
+  if (!ranked.length) return [];
+
+  var awards = [];
+  var tierValues = [awardValues.first, awardValues.second, awardValues.third];
+  var place = 0; // tier index 0 = first
+  var lastValue = null;
+  for (var i = 0; i < ranked.length && place < 3; i++) {
+    if (ranked[i].value !== lastValue) {
+      // jump place to position i (handles tied groups)
+      place = i;
+      lastValue = ranked[i].value;
+    }
+    if (place >= 3) break;
+    var pts = tierValues[place];
+    if (pts > 0) {
+      awards.push({ user: ranked[i].user, points: pts, place: place + 1, value: ranked[i].value });
+    }
+  }
+  return awards;
+}
+
+// Compute Overall top 3 using FINAL points totals (excluding overall bonus itself) as tiebreaker
+function computeOverallTop3(awardValues) {
+  var users = getActiveUsers();
+  var entries = users.map(function(u) {
+    return {
+      user: u.name,
+      totalMins: getUserStats(u.name).totalMins,
+      points: getUserPointsExcludingOverallBonus(u.name) // includes sub-board and tease bonuses now applied
+    };
+  }).filter(function(x) { return x.totalMins > 0 || x.points > 0; });
+
+  // Sort by totalMins desc, then points desc
+  entries.sort(function(a, b) {
+    if (b.totalMins !== a.totalMins) return b.totalMins - a.totalMins;
+    if (b.points !== a.points) return b.points - a.points;
+    return 0;
+  });
+
+  if (!entries.length) return [];
+
+  var awards = [];
+  var tierValues = [awardValues.first, awardValues.second, awardValues.third];
+  var place = 0;
+  var lastT = null, lastP = null;
+  for (var i = 0; i < entries.length && place < 3; i++) {
+    if (entries[i].totalMins !== lastT || entries[i].points !== lastP) {
+      place = i;
+      lastT = entries[i].totalMins;
+      lastP = entries[i].points;
+    }
+    if (place >= 3) break;
+    var pts = tierValues[place];
+    if (pts > 0) {
+      awards.push({ user: entries[i].user, points: pts, place: place + 1, totalMins: entries[i].totalMins, points_at_calc: entries[i].points });
+    }
+  }
+  return awards;
+}
+
+// Build a preview of the end-of-game awards in the order they'll be applied
+function buildEndGameAwardsPreview() {
+  var sub = state.config.endGameAwards.subboards;
+  var tease = state.config.endGameAwards.tease;
+  var overall = state.config.endGameAwards.overall;
+
+  var subBoards = [
+    { key: 'denial', label: '🔒 Denial Time', metric: 'denialMins', isTime: true, awards: sub },
+    { key: 'orgasm', label: '💦 Orgasm Time', metric: 'orgasmMins', isTime: true, awards: sub },
+    { key: 'toy', label: '🎮 Toy Time', metric: 'toyMins', isTime: true, awards: sub },
+    { key: 'edges', label: '⚡ Edge Count', metric: 'edges', isTime: false, awards: sub },
+    { key: 'orgs', label: '✨ Orgasm Count', metric: 'orgasms', isTime: false, awards: sub },
+    { key: 'tease', label: '🌶️ Toy Tease Time', metric: 'teaseMins', isTime: true, awards: tease }
+  ];
+
+  var allAwards = [];
+  subBoards.forEach(function(b) {
+    var awards = computeBoardTop3(b.metric, b.awards);
+    awards.forEach(function(a) {
+      allAwards.push({
+        user: a.user,
+        points: a.points,
+        board: b.key,
+        boardLabel: b.label,
+        place: a.place,
+        valueDisplay: b.isTime ? fmtHMS(a.value) : a.value
+      });
+    });
+  });
+
+  // Now SIMULATE applying these so the Overall calculation uses the right tiebreakers
+  // Push these into endGameBonuses temporarily, compute overall, then pull them back.
+  var savedBonuses = state.endGameBonuses.slice();
+  state.endGameBonuses = state.endGameBonuses.concat(allAwards.map(function(a) {
+    return { user: a.user, points: a.points, board: a.board, place: a.place };
+  }));
+
+  var overallAwards = computeOverallTop3(overall);
+
+  // Restore original bonuses
+  state.endGameBonuses = savedBonuses;
+
+  overallAwards.forEach(function(a) {
+    allAwards.push({
+      user: a.user,
+      points: a.points,
+      board: 'overall',
+      boardLabel: '🏆 Overall',
+      place: a.place,
+      valueDisplay: fmtHMS(a.totalMins) + ' · ' + a.points_at_calc + ' pts'
+    });
+  });
+
+  return allAwards;
+}
+
+function previewEndGameAwards() {
+  if (state.endGameAwardsApplied) {
+    showToast('Bonuses already applied');
+    return;
+  }
+  var awards = buildEndGameAwardsPreview();
+  if (!awards.length) {
+    showToast('No bonuses to award (no rankings or all values set to 0)');
+    return;
+  }
+
+  // Group by board
+  var byBoard = {};
+  awards.forEach(function(a) {
+    if (!byBoard[a.board]) byBoard[a.board] = { label: a.boardLabel, items: [] };
+    byBoard[a.board].items.push(a);
+  });
+
+  // Build HTML
+  var boardOrder = ['denial','orgasm','toy','edges','orgs','tease','overall'];
+  var html = '';
+  boardOrder.forEach(function(key) {
+    if (!byBoard[key]) return;
+    var b = byBoard[key];
+    html += '<div style="margin-bottom:1rem">' +
+      '<div style="font-family:Orbitron,monospace;font-size:0.7rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--text);margin-bottom:0.4rem">' + b.label + '</div>';
+    b.items.forEach(function(item) {
+      var medal = item.place === 1 ? '🥇' : item.place === 2 ? '🥈' : '🥉';
+      html += '<div style="display:flex;justify-content:space-between;font-size:0.75rem;padding:0.3rem 0.5rem;background:var(--bg3);margin-bottom:0.25rem">' +
+        '<span>' + medal + ' <b>' + escapeHtml(item.user) + '</b> <span style="color:var(--muted);font-size:0.65rem">(' + item.valueDisplay + ')</span></span>' +
+        '<span style="color:var(--gold);font-family:Orbitron,monospace;font-weight:700">+' + item.points + ' pts</span>' +
+      '</div>';
+    });
+    html += '</div>';
+  });
+
+  // Total points by user
+  var totals = {};
+  awards.forEach(function(a) {
+    if (!totals[a.user]) totals[a.user] = 0;
+    totals[a.user] += a.points;
+  });
+  var totalEntries = Object.keys(totals).map(function(u) { return { user: u, points: totals[u] }; })
+    .sort(function(a, b) { return b.points - a.points; });
+
+  html += '<div style="margin-top:1rem;padding-top:0.8rem;border-top:1px solid var(--border)">' +
+    '<div style="font-family:Orbitron,monospace;font-size:0.7rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--gold);margin-bottom:0.4rem">Total Bonus Points by Player</div>';
+  totalEntries.forEach(function(t) {
+    html += '<div style="display:flex;justify-content:space-between;font-size:0.75rem;padding:0.25rem 0.5rem">' +
+      '<span><b>' + escapeHtml(t.user) + '</b></span>' +
+      '<span style="color:var(--gold);font-family:Orbitron,monospace;font-weight:700">+' + t.points + ' pts</span>' +
+    '</div>';
+  });
+  html += '</div>';
+
+  document.getElementById('endgame-preview-content').innerHTML = html;
+  document.getElementById('endgame-modal').classList.remove('hidden');
+
+  // Stash the awards on the button so applyEndGameAwards can use them
+  document.getElementById('btn-confirm-endgame').dataset.awards = JSON.stringify(awards);
+}
+
+function closeEndGameModal() {
+  document.getElementById('endgame-modal').classList.add('hidden');
+}
+
+async function applyEndGameAwards() {
+  if (state.endGameAwardsApplied) {
+    showToast('Already applied');
+    closeEndGameModal();
+    return;
+  }
+  var awardsJson = document.getElementById('btn-confirm-endgame').dataset.awards;
+  if (!awardsJson) { showToast('No awards to apply'); return; }
+
+  closeEndGameModal();
+  var ok = await customConfirm('Lock in these end-of-game bonuses? This can be reset, but normally happens once.', { title: 'Apply Bonuses', okText: 'Apply', danger: false });
+  if (!ok) return;
+
+  var awards = JSON.parse(awardsJson);
+  awards.forEach(function(a) {
+    state.endGameBonuses.push({ user: a.user, points: a.points, board: a.board, place: a.place });
+  });
+  state.endGameAwardsApplied = true;
+  logTaskActivity('🏆 End-of-game bonuses applied: ' + awards.length + ' awards across ' + (Object.keys(awards.reduce(function(acc, a) { acc[a.board]=1; return acc; }, {})).length) + ' boards', 'completed');
+  showToast('🏆 Bonuses applied!');
+  renderAll();
+}
+
+async function resetEndGameBonuses() {
+  var ok = await customConfirm('Reset end-of-game bonuses? Players will lose those points and you\'ll be able to apply again.', { title: 'Reset Bonuses', okText: 'Reset' });
+  if (!ok) return;
+  state.endGameBonuses = [];
+  state.endGameAwardsApplied = false;
+  showToast('Bonuses reset');
+  renderAll();
+}
+
+function renderAll() {
+  renderHeader();
+  renderStats();
+  renderOverall();
+  renderCategories();
+  renderHistory();
+  renderTasks();
+  renderAdmin();
+  renderStatusBar();
+  renderGameStateBanners();
+}
+
+function renderGameStateBanners() {
+  var gs = getGameState();
+  var timerBanner = document.getElementById('timer-state-banner');
+  var tasksBanner = document.getElementById('tasks-state-banner');
+  if (!timerBanner || !tasksBanner) return;
+
+  if (gs === 'live') {
+    timerBanner.style.display = 'none';
+    tasksBanner.style.display = 'none';
+    // Re-enable controls
+    setControlsEnabled(true);
+    return;
+  }
+
+  // Build the banner content depending on state
+  var icon, heading, sub;
+  if (gs === 'pre') {
+    var diff = state.config.startDate - Date.now();
+    icon = '⏳';
+    heading = "Game hasn't started yet";
+    sub = 'Sessions and tasks will open when the game begins, in <b>' + fmtCountdown(diff) + '</b>. Take a look around in the meantime — read the rules, explore the tabs.';
+  } else {
+    icon = '🏁';
+    heading = 'Game ended';
+    sub = "Sessions and tasks are closed. Check the final standings on the <b>Boards</b> tab, or read the rules — they'll be back for next time.";
+  }
+
+  var html = '<div class="gsb-icon">' + icon + '</div>'
+    + '<div class="gsb-text">'
+    +   '<div class="gsb-heading">' + heading + '</div>'
+    +   '<div class="gsb-sub">' + sub + '</div>'
+    + '</div>';
+
+  timerBanner.className = 'game-state-banner ' + gs;
+  timerBanner.innerHTML = html;
+  timerBanner.style.display = '';
+  tasksBanner.className = 'game-state-banner ' + gs;
+  tasksBanner.innerHTML = html;
+  tasksBanner.style.display = '';
+
+  setControlsEnabled(false);
+}
+
+function setControlsEnabled(enabled) {
+  // Disable/enable the timer Start and manual log submit buttons
+  var startBtn = document.getElementById('btn-start');
+  if (startBtn) {
+    startBtn.disabled = !enabled;
+    startBtn.style.opacity = enabled ? '' : '0.4';
+    startBtn.style.cursor = enabled ? '' : 'not-allowed';
+  }
+  // Manual log submit
+  var manualSubmit = document.querySelector('#manual-log-body button[onclick="submitManual()"]');
+  if (manualSubmit) {
+    manualSubmit.disabled = !enabled;
+    manualSubmit.style.opacity = enabled ? '' : '0.4';
+    manualSubmit.style.cursor = enabled ? '' : 'not-allowed';
+  }
+  // Claim buttons are re-rendered per renderTasks; their disabled state is set there
+}
+
+function fmtCountdown(ms) {
+  if (ms <= 0) return '0s';
+  var d = Math.floor(ms / 86400000);
+  var h = Math.floor((ms % 86400000) / 3600000);
+  var m = Math.floor((ms % 3600000) / 60000);
+  var s = Math.floor((ms % 60000) / 1000);
+  if (d > 0) return d + 'd ' + h + 'h ' + m + 'm';
+  if (h > 0) return h + 'h ' + m + 'm ' + s + 's';
+  if (m > 0) return m + 'm ' + s + 's';
+  return s + 's';
+}
+
+
+
+function doLogin() {
+  var username = document.getElementById('login-username').value.trim();
+  var password = document.getElementById('login-password').value;
+  if (!username) { showToast('Please enter a username'); return; }
+
+  var user = state.users.find(function(u) { return u.name.toLowerCase() === username.toLowerCase(); });
+  if (!user) {
+    user = { name: username, isAdmin: false, banned: false };
+    state.users.push(user);
+  }
+
+  if (user.banned) { showToast('🚫 You are banned from this game'); return; }
+
+  state.currentUser = user.name;
+  state.isAdmin = (password === ADMIN_PASSWORD) || user.isAdmin;
+  if (password === ADMIN_PASSWORD) user.isAdmin = true;
+
+  // Clear any active timer in state — we'll restore from THIS user's localStorage if present
+  state.activeTimer = null;
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+  resetTimerUI();
+
+  document.getElementById('login-modal').style.display = 'none';
+  document.getElementById('auth-bar').style.display = 'flex';
+  document.getElementById('auth-username').textContent = user.name;
+  document.getElementById('auth-role').textContent = state.isAdmin ? '★ admin' : 'player';
+  document.getElementById('auth-dot').classList.toggle('admin', state.isAdmin);
+  document.querySelector('[data-tab="admin"]').classList.toggle('hidden', !state.isAdmin);
+
+  var saved = localStorage.getItem('mm-timer-' + state.currentUser);
+  if (saved) {
+    try {
+      var savedTimer = JSON.parse(saved);
+      // Only auto-resume if started in the last 24 hours
+      var ageMs = Date.now() - (savedTimer.startTime || 0);
+      var TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+      if (ageMs > TWENTY_FOUR_HOURS) {
+        // Stale timer — wipe it silently
+        localStorage.removeItem('mm-timer-' + state.currentUser);
+      } else {
+        state.activeTimer = savedTimer;
+        // Show a dismissible prompt instead of just resuming
+        setTab('timer');
+        resumeTimerUI();
+        // Ask user if they want to keep it
+        setTimeout(function() {
+          customConfirm('Found a timer from earlier — keep it running, or discard it?', {
+            title: 'Resume Timer?',
+            okText: 'Keep running',
+            cancelText: 'Discard',
+            danger: false
+          }).then(function(keep) {
+            if (!keep) {
+              state.activeTimer = null;
+              persistTimer();
+              resetTimerUI();
+              showToast('Old timer discarded');
+            }
+          });
+        }, 300);
+      }
+    } catch (e) {
+      localStorage.removeItem('mm-timer-' + state.currentUser);
+    }
+  }
+
+  renderAll();
+}
+
+async function logout() {
+  if (state.activeTimer) {
+    var ok = await customConfirm('You have a timer running. It will keep running in the background. Switch user?', { title: 'Switch User', okText: 'Switch', danger: false });
+    if (!ok) return;
+  }
+  state.currentUser = null;
+  state.isAdmin = false;
+  // Don't clear activeTimer — it persists in localStorage so the user can resume
+  // But hide the status bar visually since no one's logged in
+  document.getElementById('login-modal').style.display = 'flex';
+  document.getElementById('auth-bar').style.display = 'none';
+  document.getElementById('timer-status-bar').style.display = 'none';
+  document.querySelector('[data-tab="admin"]').classList.add('hidden');
+}
+
+// =========== TIMER (with pause support) ===========
+// Timer model:
+// activeTimer = {
+//   startTime: ms - when the session was first started
+//   accumulatedMs: total elapsed time before current run started (from previous runs)
+//   pausedAt: ms or null - if not null, timer is paused
+//   mode, toy, edges, orgasms
+// }
+// Elapsed = paused ? accumulatedMs : accumulatedMs + (Date.now() - startTime)
+
+var timerInterval = null;
+
+function selectMode(btn) {
+  document.querySelectorAll('.mode-btn').forEach(function(b) { b.classList.remove('selected'); });
+  btn.classList.add('selected');
+  if (state.activeTimer) {
+    state.activeTimer.mode = btn.dataset.mode;
+    persistTimer();
+  }
+  applyModeUI();
+}
+
+function applyModeUI() {
+  var mode = getSelectedMode();
+  var ruleEl = document.getElementById('rule-reminder');
+  var counterWrap = document.getElementById('counters-wrap');
+  var toyCheckbox = document.getElementById('toy-checkbox');
+  var toySelect = document.getElementById('toy-select');
+
+  if (mode === 'tease') {
+    if (ruleEl) ruleEl.innerHTML = '<b>🌶️ TEASE MODE:</b> Toy use during normal activities — <b>not</b> actively trying to come or edge. <b>Time logged here only counts toward the Toy Tease leaderboard</b>, not Overall, Denial, Orgasm, or Toy Time. Toy required.';
+    if (counterWrap) counterWrap.style.display = 'none';
+    // Force toy on
+    if (!state.activeTimer) {
+      toyCheckbox.checked = true;
+      toyCheckbox.disabled = true;
+      toySelect.disabled = false;
+    }
+  } else {
+    if (ruleEl) ruleEl.innerHTML = '<b>⚠ REMINDER:</b> Playtime must be time spent <b>actively attempting to get to orgasm or edge</b>. The timer is on the honour system.';
+    if (counterWrap) counterWrap.style.display = '';
+    if (!state.activeTimer) {
+      toyCheckbox.disabled = false;
+    }
+  }
+}
+
+function getSelectedMode() { return document.querySelector('.mode-btn.selected').dataset.mode; }
+
+function toggleToy() {
+  var cb = document.getElementById('toy-checkbox');
+  document.getElementById('toy-select').disabled = !cb.checked;
+}
+
+function persistTimer() {
+  if (!state.currentUser) return;
+  if (state.activeTimer) {
+    localStorage.setItem('mm-timer-' + state.currentUser, JSON.stringify(state.activeTimer));
+  } else {
+    localStorage.removeItem('mm-timer-' + state.currentUser);
+  }
+}
+
+function getElapsedSecs() {
+  if (!state.activeTimer) return 0;
+  var t = state.activeTimer;
+  if (t.pausedAt) {
+    return Math.floor(t.accumulatedMs / 1000);
+  }
+  return Math.floor((t.accumulatedMs + (Date.now() - t.startTime)) / 1000);
+}
+
+function startTimer() {
+  if (state.activeTimer) return;
+  var gs = getGameState();
+  if (gs === 'pre') { showToast('Game hasn\'t started yet'); return; }
+  if (gs === 'ended') { showToast('Game has ended'); return; }
+  var mode = getSelectedMode();
+  if (mode === 'tease') {
+    var toySel = document.getElementById('toy-select').value;
+    if (!toySel) { showToast('Tease mode requires a toy'); return; }
+    state.activeTimer = {
+      startTime: Date.now(),
+      accumulatedMs: 0,
+      pausedAt: null,
+      mode: mode,
+      toy: toySel,
+      edges: 0,
+      orgasms: 0
+    };
+  } else {
+    var toyCb = document.getElementById('toy-checkbox').checked;
+    var toy = toyCb ? document.getElementById('toy-select').value : null;
+    if (toyCb && !toy) { showToast('Pick a toy or uncheck the box'); return; }
+
+    state.activeTimer = {
+      startTime: Date.now(),
+      accumulatedMs: 0,
+      pausedAt: null,
+      mode: mode,
+      toy: toy,
+      edges: 0,
+      orgasms: 0
+    };
+  }
+  persistTimer();
+  resumeTimerUI();
+  showToast('▶️ Timer started');
+}
+
+function pauseTimer() {
+  if (!state.activeTimer || state.activeTimer.pausedAt) return;
+  // Bank the elapsed time
+  state.activeTimer.accumulatedMs += Date.now() - state.activeTimer.startTime;
+  state.activeTimer.pausedAt = Date.now();
+  persistTimer();
+  clearInterval(timerInterval);
+
+  document.getElementById('big-timer').classList.remove('running');
+  document.getElementById('big-timer').classList.add('paused');
+  document.getElementById('timer-status').textContent = '⏸ paused';
+  document.getElementById('timer-status').className = 'timer-status paused-status';
+  document.getElementById('btn-pause').classList.add('hidden');
+  document.getElementById('btn-resume').classList.remove('hidden');
+  renderStatusBar();
+  showToast('⏸ Paused');
+}
+
+function resumeTimer() {
+  if (!state.activeTimer || !state.activeTimer.pausedAt) return;
+  // Reset startTime to now; accumulatedMs already has previous run's time
+  state.activeTimer.startTime = Date.now();
+  state.activeTimer.pausedAt = null;
+  persistTimer();
+
+  document.getElementById('big-timer').classList.remove('paused');
+  document.getElementById('big-timer').classList.add('running');
+  document.getElementById('timer-status').textContent = '● live';
+  document.getElementById('timer-status').className = 'timer-status live';
+  document.getElementById('btn-pause').classList.remove('hidden');
+  document.getElementById('btn-resume').classList.add('hidden');
+
+  tickTimer();
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(tickTimer, 1000);
+  renderStatusBar();
+  showToast('▶ Resumed');
+}
+
+function resumeTimerUI() {
+  if (!state.activeTimer) return;
+  document.querySelectorAll('.mode-btn').forEach(function(b) {
+    b.classList.toggle('selected', b.dataset.mode === state.activeTimer.mode);
+  });
+  document.getElementById('toy-checkbox').checked = !!state.activeTimer.toy;
+  document.getElementById('toy-select').disabled = !state.activeTimer.toy;
+  if (state.activeTimer.toy) document.getElementById('toy-select').value = state.activeTimer.toy;
+
+  document.getElementById('edge-count').textContent = state.activeTimer.edges;
+  document.getElementById('orgasm-count').textContent = state.activeTimer.orgasms;
+
+  var isPaused = !!state.activeTimer.pausedAt;
+  var isTease = state.activeTimer.mode === 'tease';
+
+  document.getElementById('big-timer').classList.toggle('running', !isPaused);
+  document.getElementById('big-timer').classList.toggle('paused', isPaused);
+
+  if (isPaused) {
+    document.getElementById('timer-status').textContent = '⏸ paused';
+    document.getElementById('timer-status').className = 'timer-status paused-status';
+  } else {
+    document.getElementById('timer-status').textContent = isTease ? '🌶️ tease live' : '● live';
+    document.getElementById('timer-status').className = 'timer-status live';
+  }
+
+  document.getElementById('btn-start').classList.add('hidden');
+  document.getElementById('btn-pause').classList.toggle('hidden', isPaused);
+  document.getElementById('btn-resume').classList.toggle('hidden', !isPaused);
+  document.getElementById('btn-stop').classList.remove('hidden');
+  document.getElementById('btn-submit').classList.add('hidden');
+  document.getElementById('btn-discard').classList.add('hidden');
+  document.getElementById('toy-checkbox').disabled = true;
+  document.getElementById('toy-select').disabled = true;
+
+  // Hide counters during tease, show otherwise
+  document.getElementById('counters-wrap').style.display = isTease ? 'none' : '';
+
+  document.getElementById('edge-counter-card').classList.remove('disabled');
+  document.getElementById('orgasm-counter-card').classList.remove('disabled');
+  document.getElementById('edge-btn').disabled = false;
+  document.getElementById('orgasm-btn').disabled = false;
+
+  // Update rule reminder for the active mode
+  applyModeUI();
+
+  // Show the persistent status bar
+  renderStatusBar();
+
+  tickTimer();
+  if (timerInterval) clearInterval(timerInterval);
+  if (!isPaused) timerInterval = setInterval(tickTimer, 1000);
+}
+
+function tickTimer() {
+  if (!state.activeTimer) return;
+  document.getElementById('big-timer').textContent = fmtTimer(getElapsedSecs());
+  // Also update the status bar if visible
+  renderStatusBar();
+}
+
+function renderStatusBar() {
+  var bar = document.getElementById('timer-status-bar');
+  if (!bar) return;
+
+  // No bar at all if no user logged in
+  if (!state.currentUser) {
+    bar.style.display = 'none';
+    return;
+  }
+
+  var idleEl = document.getElementById('tsb-idle');
+  var activeEl = document.getElementById('tsb-active');
+
+  // Idle state: no active timer
+  if (!state.activeTimer) {
+    bar.style.display = '';
+    bar.classList.add('idle');
+    bar.classList.remove('running', 'paused', 'tease');
+    idleEl.style.display = '';
+    activeEl.style.display = 'none';
+
+    // Vary the idle CTA based on game state
+    var gs = getGameState();
+    var iconEl = document.getElementById('tsb-idle-icon');
+    var titleEl = document.getElementById('tsb-idle-title');
+    var subEl = document.getElementById('tsb-idle-sub');
+    var arrowEl = document.getElementById('tsb-idle-arrow');
+
+    if (gs === 'pre') {
+      iconEl.textContent = '⏳';
+      titleEl.textContent = 'Game starts soon';
+      subEl.textContent = 'Read the rules while you wait';
+      arrowEl.style.display = 'none';
+      idleEl.onclick = function() { setTab('rules'); };
+      arrowEl.style.display = '';  // keep arrow but point to rules
+    } else if (gs === 'ended') {
+      iconEl.textContent = '🏁';
+      titleEl.textContent = 'Game ended';
+      subEl.textContent = 'Check the final standings';
+      idleEl.onclick = function() { setTab('categories'); };
+    } else {
+      iconEl.textContent = '▶';
+      titleEl.textContent = 'Start a Session';
+      subEl.textContent = 'Tap to open the timer';
+      arrowEl.style.display = '';
+      idleEl.onclick = function() { setTab('timer'); };
+    }
+    return;
+  }
+
+  // Active state: timer running or paused
+  bar.classList.remove('idle');
+  idleEl.style.display = 'none';
+  activeEl.style.display = '';
+
+  var t = state.activeTimer;
+  var isPaused = !!t.pausedAt;
+  var isTease = t.mode === 'tease';
+  var modeIcon = MODES[t.mode].icon;
+  var modeLabel = MODES[t.mode].label;
+  var elapsed = getElapsedSecs();
+
+  bar.style.display = '';
+
+  // State classes
+  bar.classList.toggle('running', !isPaused);
+  bar.classList.toggle('paused', isPaused);
+  bar.classList.toggle('tease', isTease);
+
+  document.getElementById('tsb-mode').textContent = modeIcon;
+  document.getElementById('tsb-time').textContent = fmtTimer(elapsed);
+
+  // Meta line: mode + counters (if not tease)
+  var metaParts = [modeLabel.toLowerCase()];
+  if (isPaused) {
+    metaParts.push('paused');
+  } else {
+    metaParts.push('live');
+  }
+  if (!isTease) {
+    if (t.edges > 0) metaParts.push('⚡' + t.edges);
+    if (t.orgasms > 0) metaParts.push('✨' + t.orgasms);
+  } else if (t.toy) {
+    // For tease, show short toy name
+    metaParts.push('🎮 ' + t.toy.split(' (')[0]);
+  }
+  document.getElementById('tsb-meta').textContent = metaParts.join(' · ');
+
+  // Show/hide pause vs resume
+  document.getElementById('tsb-pause').classList.toggle('hidden', isPaused);
+  document.getElementById('tsb-resume').classList.toggle('hidden', !isPaused);
+}
+
+// Called from the status bar's End button — same as Stop on the timer page,
+// and switches to the timer tab so admin can save/discard.
+function stopTimerFromBar() {
+  if (!state.activeTimer) return;
+  setTab('timer');
+  // Small delay so the tab switch is visible before stop
+  setTimeout(function() {
+    if (state.activeTimer && !state.activeTimer.pausedAt) {
+      stopTimer();
+    } else {
+      stopTimer();
+    }
+  }, 50);
+}
+
+function stopTimer() {
+  if (!state.activeTimer) return;
+  // Bank elapsed if not already paused
+  if (!state.activeTimer.pausedAt) {
+    state.activeTimer.accumulatedMs += Date.now() - state.activeTimer.startTime;
+    state.activeTimer.pausedAt = Date.now();
+  }
+  persistTimer();
+  clearInterval(timerInterval);
+  document.getElementById('big-timer').classList.remove('running');
+  document.getElementById('big-timer').classList.remove('paused');
+  document.getElementById('timer-status').textContent = 'session ended — adjust details then save';
+  document.getElementById('timer-status').className = 'timer-status';
+  document.getElementById('btn-pause').classList.add('hidden');
+  document.getElementById('btn-resume').classList.add('hidden');
+  document.getElementById('btn-stop').classList.add('hidden');
+  document.getElementById('btn-submit').classList.remove('hidden');
+  document.getElementById('btn-discard').classList.remove('hidden');
+  // Hide the status bar once stopped — at this point session needs save/discard
+  document.getElementById('timer-status-bar').style.display = 'none';
+}
+
+function bumpEdge() {
+  if (!state.activeTimer) return;
+  state.activeTimer.edges++;
+  document.getElementById('edge-count').textContent = state.activeTimer.edges;
+  persistTimer();
+  renderStatusBar();
+}
+
+function bumpOrgasm() {
+  if (!state.activeTimer) return;
+  state.activeTimer.orgasms++;
+  document.getElementById('orgasm-count').textContent = state.activeTimer.orgasms;
+  persistTimer();
+  renderStatusBar();
+}
+
+async function submitSession() {
+  if (!state.activeTimer) return;
+  var elapsedSecs = getElapsedSecs();
+  if (elapsedSecs < 30) {
+    var ok = await customConfirm('Session is under 30 seconds. Submit anyway?', { title: 'Short Session', okText: 'Submit', danger: false });
+    if (!ok) return;
+  }
+  var mins = Math.max(1, Math.round(elapsedSecs / 60));
+  var finalMode = getSelectedMode();
+
+  state.sessions.push({
+    id: uid(),
+    user: state.currentUser,
+    mode: finalMode,
+    durationMins: mins,
+    edges: state.activeTimer.edges,
+    orgasms: state.activeTimer.orgasms,
+    toy: state.activeTimer.toy,
+    timestamp: Date.now(),
+    manual: false
+  });
+
+  state.activeTimer = null;
+  persistTimer();
+  resetTimerUI();
+  showToast('✓ ' + mins + 'm logged as ' + MODES[finalMode].label + '!');
+  renderAll();
+}
+
+async function discardSession() {
+  var ok = await customConfirm('Discard this session? It will not be logged.', { title: 'Discard Session', okText: 'Discard' });
+  if (!ok) return;
+  state.activeTimer = null;
+  persistTimer();
+  resetTimerUI();
+  showToast('Session discarded');
+}
+
+function resetTimerUI() {
+  clearInterval(timerInterval);
+  document.getElementById('big-timer').textContent = '00:00:00';
+  document.getElementById('big-timer').classList.remove('running');
+  document.getElementById('big-timer').classList.remove('paused');
+  document.getElementById('timer-status').textContent = 'ready';
+  document.getElementById('timer-status').className = 'timer-status';
+  document.getElementById('btn-start').classList.remove('hidden');
+  document.getElementById('btn-pause').classList.add('hidden');
+  document.getElementById('btn-resume').classList.add('hidden');
+  document.getElementById('btn-stop').classList.add('hidden');
+  document.getElementById('btn-submit').classList.add('hidden');
+  document.getElementById('btn-discard').classList.add('hidden');
+  document.getElementById('edge-count').textContent = '0';
+  document.getElementById('orgasm-count').textContent = '0';
+  document.getElementById('toy-checkbox').disabled = false;
+  document.getElementById('toy-checkbox').checked = false;
+  document.getElementById('toy-select').disabled = true;
+  document.getElementById('toy-select').value = '';
+  document.getElementById('edge-counter-card').classList.add('disabled');
+  document.getElementById('orgasm-counter-card').classList.add('disabled');
+  document.getElementById('edge-btn').disabled = true;
+  document.getElementById('orgasm-btn').disabled = true;
+  // Reset to denial mode and restore counters wrap visibility
+  document.querySelectorAll('.mode-btn').forEach(function(b) { b.classList.remove('selected'); });
+  document.querySelector('.mode-btn[data-mode="denial"]').classList.add('selected');
+  document.getElementById('counters-wrap').style.display = '';
+  applyModeUI();
+  // Refresh status bar — will show idle state since activeTimer was just cleared
+  renderStatusBar();
+}
+
+function toggleManualLog() {
+  var body = document.getElementById('manual-log-body');
+  var btn = document.getElementById('manual-toggle-btn');
+  var isOpen = body.style.display !== 'none';
+  if (isOpen) {
+    body.style.display = 'none';
+    btn.classList.remove('expanded');
+  } else {
+    body.style.display = '';
+    btn.classList.add('expanded');
+  }
+}
+
+function submitManual() {
+  var gs = getGameState();
+  if (gs === 'pre') { showToast('Game hasn\'t started yet'); return; }
+  if (gs === 'ended') { showToast('Game has ended'); return; }
+  var mins = parseInt(document.getElementById('manual-mins').value);
+  if (!mins || mins < 1) { showToast('Enter a duration'); return; }
+  if (mins > 120) { showToast('Manual logs capped at 120 minutes'); return; }
+  var mode = document.getElementById('manual-mode').value;
+  var edges = parseInt(document.getElementById('manual-edges').value) || 0;
+  var orgasms = parseInt(document.getElementById('manual-orgs').value) || 0;
+  var toy = document.getElementById('manual-toy').value || null;
+
+  if (mode === 'tease') {
+    if (!toy) { showToast('Tease mode requires a toy'); return; }
+    // Tease never has counters
+    edges = 0;
+    orgasms = 0;
+  }
+
+  state.sessions.push({
+    id: uid(),
+    user: state.currentUser,
+    mode: mode, durationMins: mins, edges: edges, orgasms: orgasms, toy: toy,
+    timestamp: Date.now(), manual: true
+  });
+
+  document.getElementById('manual-mins').value = '';
+  document.getElementById('manual-edges').value = '';
+  document.getElementById('manual-orgs').value = '';
+  document.getElementById('manual-toy').value = '';
+  showToast('✓ Manual log: ' + mins + 'm ' + MODES[mode].label);
+  renderAll();
+}
+
+// =========== ADMIN ===========
+
+function saveConfig() {
+  var name = document.getElementById('cfg-name').value.trim();
+  var subtitle = document.getElementById('cfg-subtitle').value.trim();
+  var startStr = document.getElementById('cfg-start').value;
+  var endStr = document.getElementById('cfg-end').value;
+  if (!name || !startStr || !endStr) { showToast('Fill all fields'); return; }
+
+  var start = new Date(startStr).getTime();
+  var end = new Date(endStr).getTime();
+  if (end <= start) { showToast('End must be after start'); return; }
+
+  // Merge into existing config (don't wipe out tasks/awards/etc.)
+  state.config.name = name;
+  state.config.subtitle = subtitle;
+  state.config.startDate = start;
+  state.config.endDate = end;
+  showToast('✓ Game config saved');
+  renderHeader();
+  updateCountdown();
+}
+
+function toggleAdminRole(name) {
+  var u = state.users.find(function(x) { return x.name === name; });
+  if (!u) return;
+  u.isAdmin = !u.isAdmin;
+  showToast(name + ' ' + (u.isAdmin ? 'promoted to admin' : 'demoted'));
+  renderAdmin();
+}
+
+async function toggleBan(name) {
+  var u = state.users.find(function(x) { return x.name === name; });
+  if (!u) return;
+  if (!u.banned) {
+    var ok = await customConfirm('Ban ' + name + '? Their data will be hidden from leaderboards.', { title: 'Ban Player', okText: 'Ban' });
+    if (!ok) return;
+  }
+  u.banned = !u.banned;
+  showToast(name + ' ' + (u.banned ? 'banned' : 'unbanned'));
+  renderAll();
+}
+
+var editingSessionId = null;
+function openEdit(id) {
+  var s = state.sessions.find(function(x) { return x.id === id; });
+  if (!s) return;
+  editingSessionId = id;
+  document.getElementById('edit-mode').value = s.mode;
+  document.getElementById('edit-mins').value = s.durationMins;
+  document.getElementById('edit-edges').value = s.edges || 0;
+  document.getElementById('edit-orgs').value = s.orgasms || 0;
+  document.getElementById('edit-modal').classList.remove('hidden');
+}
+function closeEdit() {
+  editingSessionId = null;
+  document.getElementById('edit-modal').classList.add('hidden');
+}
+function saveEdit() {
+  var s = state.sessions.find(function(x) { return x.id === editingSessionId; });
+  if (!s) return;
+  var newMode = document.getElementById('edit-mode').value;
+  s.mode = newMode;
+  s.durationMins = parseInt(document.getElementById('edit-mins').value) || 1;
+  s.edges = parseInt(document.getElementById('edit-edges').value) || 0;
+  s.orgasms = parseInt(document.getElementById('edit-orgs').value) || 0;
+  // Enforce tease constraints: no counters, toy required (keep whatever was set)
+  if (newMode === 'tease') {
+    s.edges = 0;
+    s.orgasms = 0;
+  }
+  closeEdit();
+  showToast('Session updated');
+  renderAll();
+}
+async function deleteSession(id) {
+  var ok = await customConfirm('Delete this session?', { title: 'Delete Session', okText: 'Delete' });
+  if (!ok) return;
+  state.sessions = state.sessions.filter(function(x) { return x.id !== id; });
+  showToast('Session deleted');
+  renderAll();
+}
+
+function exportBackup() {
+  var data = {
+    version: 5,
+    exportedAt: new Date().toISOString(),
+    config: state.config,
+    users: state.users,
+    sessions: state.sessions,
+    taskLibrary: state.taskLibrary,
+    taskInstances: state.taskInstances,
+    failedClaims: state.failedClaims,
+    dailyAwards: state.dailyAwards,
+    taskActivity: state.taskActivity,
+    endGameAwardsApplied: state.endGameAwardsApplied,
+    endGameBonuses: state.endGameBonuses,
+    manualAdjustments: state.manualAdjustments,
+    transferSnapshots: state.transferSnapshots,
+    pendingTransfer: state.pendingTransfer
+  };
+  var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'playtime-backup-' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('📦 Backup downloaded');
+}
+async function importBackup(event) {
+  var file = event.target.files[0];
+  if (!file) return;
+  var ok = await customConfirm('Import will REPLACE all current data. Continue?', { title: 'Import Backup', okText: 'Import' });
+  if (!ok) { event.target.value = ''; return; }
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var data = JSON.parse(e.target.result);
+      if (!data.users || !data.sessions) throw new Error('Invalid backup');
+      state.users = data.users;
+      state.sessions = data.sessions;
+      if (data.config) state.config = data.config;
+      if (data.taskLibrary) state.taskLibrary = data.taskLibrary;
+      if (data.taskInstances) state.taskInstances = data.taskInstances;
+      if (data.failedClaims) state.failedClaims = data.failedClaims;
+      if (data.dailyAwards) state.dailyAwards = data.dailyAwards;
+      if (data.taskActivity) state.taskActivity = data.taskActivity;
+      if (typeof data.endGameAwardsApplied !== 'undefined') state.endGameAwardsApplied = data.endGameAwardsApplied;
+      if (data.endGameBonuses) state.endGameBonuses = data.endGameBonuses;
+      if (data.manualAdjustments) state.manualAdjustments = data.manualAdjustments;
+      if (data.transferSnapshots) state.transferSnapshots = data.transferSnapshots;
+      if (typeof data.pendingTransfer !== 'undefined') state.pendingTransfer = data.pendingTransfer;
+      showToast('✓ Backup restored');
+      renderAll();
+    } catch (err) { showToast('❌ Invalid backup file'); }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+async function resetGame() {
+  var ok1 = await customConfirm('RESET ALL SESSIONS? This cannot be undone (without a backup).', { title: 'Reset Game', okText: 'Reset' });
+  if (!ok1) return;
+  var ok2 = await customConfirm('Are you really sure? All session data will be wiped.', { title: 'Final Confirmation', okText: 'Yes, reset' });
+  if (!ok2) return;
+  state.sessions = [];
+  showToast('🔄 Game reset');
+  renderAll();
+}
+
+function setTab(name) {
+  ['overall','categories','tasks','timer','rules','admin'].forEach(function(t) {
+    document.getElementById('tab-' + t).classList.toggle('hidden', t !== name);
+  });
+  document.querySelectorAll('.tab').forEach(function(el) {
+    el.classList.toggle('active', el.dataset.tab === name);
+  });
+}
+
+function updateCountdown() {
+  var now = Date.now();
+  var start = state.config.startDate;
+  var end = state.config.endDate;
+  var label = document.getElementById('countdown-label');
+
+  var diff, pct;
+
+  if (now < start) {
+    diff = start - now;
+    label.textContent = 'Game starts in';
+    pct = 0;
+  } else if (now < end) {
+    diff = end - now;
+    label.textContent = 'Game ends in';
+    pct = Math.max(0, Math.min(100, Math.round(((now - start) / (end - start)) * 100)));
+  } else {
+    diff = 0;
+    label.textContent = 'Game ended';
+    pct = 100;
+  }
+
+  var d = Math.floor(diff / 86400000);
+  var h = Math.floor((diff % 86400000) / 3600000);
+  var m = Math.floor((diff % 3600000) / 60000);
+  var s = Math.floor((diff % 60000) / 1000);
+
+  document.getElementById('countdown').textContent = diff > 0
+    ? d + 'd ' + String(h).padStart(2,'0') + 'h ' + String(m).padStart(2,'0') + 'm ' + String(s).padStart(2,'0') + 's'
+    : 'finished';
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('pct-label').textContent = pct + '%';
+
+  renderDailyCard();
+  renderGameStateBanners();
+  renderStatusBar();
+  renderHeader();
+}
+
+function renderDailyCard() {
+  var card = document.getElementById('daily-card');
+  if (!card) return;
+
+  var now = Date.now();
+  var start = state.config.startDate;
+  var end = state.config.endDate;
+  var awards = state.config.dailyAwards;
+
+  // Hide if game hasn't started, has ended, or all award values are 0
+  if (now < start || now >= end || (awards.first + awards.second + awards.third === 0)) {
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = '';
+
+  // Calculate which window we're in and how long until reset
+  var elapsed = now - start;
+  var currentWindow = Math.floor(elapsed / 86400000);
+  var windowStart = start + (currentWindow * 86400000);
+  var windowEnd = windowStart + 86400000;
+  var msUntilReset = windowEnd - now;
+
+  // If reset would land after game end, cap at game end
+  if (windowEnd > end) {
+    msUntilReset = Math.max(0, end - now);
+  }
+
+  var h = Math.floor(msUntilReset / 3600000);
+  var m = Math.floor((msUntilReset % 3600000) / 60000);
+  var s = Math.floor((msUntilReset % 60000) / 1000);
+  document.getElementById('daily-countdown').textContent =
+    (h < 10 ? '0' + h : h) + ':' + (m < 10 ? '0' + m : m) + ':' + (s < 10 ? '0' + s : s);
+
+  // Prize display
+  document.getElementById('daily-prize-values').textContent =
+    '🥇' + awards.first + ' · 🥈' + awards.second + ' · 🥉' + awards.third;
+
+  // Compute current standings for THIS window
+  var windowPlaytime = {};
+  state.sessions.forEach(function(sess) {
+    if (sess.mode === 'tease') return; // Tease doesn't count for daily
+    if (sess.timestamp >= windowStart && sess.timestamp < windowEnd) {
+      var u = state.users.find(function(usr) { return usr.name === sess.user; });
+      if (!u || u.banned) return;
+      if (!windowPlaytime[sess.user]) windowPlaytime[sess.user] = 0;
+      windowPlaytime[sess.user] += sess.durationMins;
+    }
+  });
+
+  var ranked = Object.keys(windowPlaytime)
+    .map(function(u) { return { user: u, mins: windowPlaytime[u] }; })
+    .filter(function(x) { return x.mins > 0; })
+    .sort(function(a, b) { return b.mins - a.mins; });
+
+  var podium = document.getElementById('daily-podium');
+
+  if (!ranked.length) {
+    podium.innerHTML = '<div class="daily-empty">No playtime logged in this window yet — be the first to claim a podium spot!</div>';
+    return;
+  }
+
+  // Group by ties to determine places (matches existing daily award logic)
+  var tierValues = [awards.first, awards.second, awards.third];
+  var rows = [];
+  var place = 0;
+  var lastMins = null;
+  for (var i = 0; i < ranked.length && place < 3; i++) {
+    if (ranked[i].mins !== lastMins) {
+      place = i;
+      lastMins = ranked[i].mins;
+    }
+    if (place >= 3) break;
+    rows.push({
+      user: ranked[i].user,
+      mins: ranked[i].mins,
+      place: place + 1,
+      points: tierValues[place]
+    });
+  }
+
+  podium.innerHTML = rows.map(function(r) {
+    var medal = r.place === 1 ? '🥇' : r.place === 2 ? '🥈' : '🥉';
+    var rankCls = r.place === 1 ? 'r1' : r.place === 2 ? 'r2' : 'r3';
+    var meCls = r.user === state.currentUser ? 'me' : '';
+    return '<div class="daily-podium-row ' + meCls + '">' +
+      '<div class="daily-podium-rank ' + rankCls + '">' + medal + '</div>' +
+      '<div class="daily-podium-name">' + escapeHtml(r.user) + (r.user === state.currentUser ? ' <span style="font-size:0.55rem;color:var(--green);letter-spacing:0.1em">YOU</span>' : '') + '</div>' +
+      '<div class="daily-podium-mins">' + fmtHMS(r.mins) + '</div>' +
+      '<div class="daily-podium-pts">+' + r.points + ' pts</div>' +
+    '</div>';
+  }).join('');
+}
+
+function populateToySelects() {
+  var optionsHtml = '<option value="">— Select your toy —</option>';
+  for (var i = 0; i < LOVENSE_TOYS.length; i++) {
+    var t = LOVENSE_TOYS[i];
+    optionsHtml += '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + '</option>';
+  }
+  document.getElementById('toy-select').innerHTML = optionsHtml;
+
+  var manualHtml = '<option value="">— No toy —</option>';
+  for (var j = 0; j < LOVENSE_TOYS.length; j++) {
+    var t2 = LOVENSE_TOYS[j];
+    manualHtml += '<option value="' + escapeHtml(t2) + '">' + escapeHtml(t2) + '</option>';
+  }
+  document.getElementById('manual-toy').innerHTML = manualHtml;
+}
+
+// ============== AGE GATE ==============
+function checkAgeGate() {
+  if (localStorage.getItem('mm-age-confirmed') === '1') return true;
+  document.getElementById('age-gate-modal').style.display = 'flex';
+  // Hide login modal until age confirmed
+  document.getElementById('login-modal').style.display = 'none';
+  return false;
+}
+function confirmAgeGate() {
+  localStorage.setItem('mm-age-confirmed', '1');
+  document.getElementById('age-gate-modal').style.display = 'none';
+  // Now show the login modal
+  document.getElementById('login-modal').style.display = 'flex';
+}
+function leaveAgeGate() {
+  // Best-effort: navigate away. Some browsers block window.close so fall back to a friendly message.
+  try {
+    window.location.href = 'about:blank';
+  } catch (e) {
+    document.getElementById('age-gate-modal').innerHTML = '<div class="modal age-gate-modal"><h2>Goodbye</h2><p class="age-gate-text">Please close this tab.</p></div>';
+  }
+}
+
+// ============== INIT ==============
+populateToySelects();
+updateCountdown();
+setInterval(updateCountdown, 1000);
+renderHeader();
+
+// Show age gate first if needed
+checkAgeGate();
+
+// Task system periodic check — every 10 seconds, check for new spawns,
+// expired claims, and daily awards. Re-render tasks if logged in.
+function tickTasks() {
+  checkAndSpawnTasks();
+  checkExpiredClaims();
+  checkDailyAwards();
+  if (state.currentUser) {
+    renderTasks();
+    // Re-render overall to update points if tasks completed/awards given
+    renderOverall();
+  }
+}
+
+// Initial check on load (catches tasks that should have spawned while away)
+checkAndSpawnTasks();
+checkExpiredClaims();
+checkDailyAwards();
+setInterval(tickTasks, 10000);
+
+// Update active task timer every second when timer tab open
+setInterval(function() {
+  if (state.currentUser && document.getElementById('tab-tasks') && !document.getElementById('tab-tasks').classList.contains('hidden')) {
+    var myTask = getMyActiveTask();
+    if (myTask) {
+      var card = document.getElementById('my-active-task');
+      if (card) {
+        var timerEl = card.querySelector('.task-timer-badge');
+        if (timerEl) {
+          var remaining = fmtTaskTimeRemaining(myTask.claimedAt);
+          var urgent = (Date.now() - myTask.claimedAt) > (state.config.claimWindowMins * 60 * 1000 - 300000);
+          timerEl.textContent = '⏱ ' + remaining + ' left';
+          timerEl.classList.toggle('urgent', urgent);
+        }
+      }
+    }
+  }
+}, 1000);
+</script>
+</body>
+</html>
