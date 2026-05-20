@@ -3,8 +3,50 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Server Playtime Championship</title>
+<title>The Play Race</title>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<script type="module">
+  // ===== Firebase initialisation (live shared data) =====
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getAuth, signInAnonymously, onAuthStateChanged }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyB4fLxjzxm98F32ZWixcOuzwbeIvr5UxJU",
+    authDomain: "theplayrace.firebaseapp.com",
+    projectId: "theplayrace",
+    storageBucket: "theplayrace.firebasestorage.app",
+    messagingSenderId: "785142042894",
+    appId: "1:785142042894:web:a674792946cf72c415875f"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const auth = getAuth(app);
+
+  // Expose what the main (classic) script needs on window.FB
+  window.FB = {
+    db, auth,
+    doc, getDoc, setDoc, onSnapshot, serverTimestamp,
+    signInAnonymously, onAuthStateChanged,
+    ready: false
+  };
+
+  // Sign in anonymously, then let the main script know Firebase is ready.
+  signInAnonymously(auth).catch(function(err) {
+    console.error('Anonymous sign-in failed', err);
+    if (window.onFirebaseError) window.onFirebaseError(err);
+  });
+  onAuthStateChanged(auth, function(user) {
+    if (user) {
+      window.FB.uid = user.uid;
+      window.FB.ready = true;
+      if (window.onFirebaseReady) window.onFirebaseReady();
+    }
+  });
+</script>
 <style>
   :root {
     --bg: #0a0a12; --bg2: #11111e; --bg3: #181828; --bg4: #20203a;
@@ -600,8 +642,8 @@
 <div class="container">
   <header>
     <div class="game-badge" id="game-badge">🔥 Live Game</div>
-    <h1 id="game-name">Server Playtime Championship</h1>
-    <p class="subtitle" id="game-subtitle">Curious Pirate Games</p>
+    <h1 id="game-name">The Play Race</h1>
+    <p class="subtitle" id="game-subtitle">Who will be the horniest?</p>
   </header>
 
   <div class="auth-bar" id="auth-bar" style="display:none">
@@ -970,6 +1012,11 @@
           </div>
         </div>
         <div class="cat-desc">Set how long the game runs. Daily 24h windows start from the game start time.</div>
+        <div>
+          <label class="field-label">Admin Password</label>
+          <input type="text" class="input" id="cfg-admin-password" placeholder="spicy2026">
+        </div>
+        <div class="cat-desc">Anyone who logs in with this password becomes an admin. Change it to control who has admin access. Note: this is a casual gate, not strong security — keep it private.</div>
         <button class="btn btn-secondary btn-small" onclick="saveConfig()">Save Configuration</button>
       </div>
     </div>
@@ -1164,7 +1211,7 @@
   </div>
 
   <footer class="app-footer">
-    <span class="app-version">v28.0</span>
+    <span class="app-version">v29.0</span>
   </footer>
 </div>
 
@@ -1282,9 +1329,12 @@ var MODES = {
 
 var ADMIN_PASSWORD = 'spicy2026';
 
-// Default game config — admin-set in real version
+// Default game config — admin sets real dates before launch.
+// Default to starting tomorrow so a fresh game sits in "pre-game" (no tasks
+// spawn, no sessions count) until an admin configures and the start passes.
 var defaultStart = new Date();
 defaultStart.setHours(0, 0, 0, 0);
+defaultStart.setDate(defaultStart.getDate() + 1); // tomorrow midnight
 var defaultEnd = new Date(defaultStart);
 defaultEnd.setDate(defaultEnd.getDate() + 7); // default 1 week game
 
@@ -1299,6 +1349,7 @@ var state = {
     tasksPerDay: 4,
     claimWindowMins: 60,
     dailyAwards: { first: 50, second: 30, third: 15 },
+    adminPassword: 'spicy2026',
     endGameAwards: {
       overall:   { first: 200, second: 120, third: 60 },
       subboards: { first: 75,  second: 45,  third: 20 },
@@ -1307,18 +1358,7 @@ var state = {
   },
   endGameAwardsApplied: false,
   endGameBonuses: [], // {user, points, board, place}
-  users: [
-    { name: 'VelvetDreamer', isAdmin: false, banned: false },
-    { name: 'PixelWitch99', isAdmin: false, banned: false },
-    { name: 'SlowBurnSam', isAdmin: true, banned: false },
-    { name: 'ToyCollector', isAdmin: false, banned: false },
-    { name: 'EdgeLordSupreme', isAdmin: false, banned: false },
-    { name: 'NightOwlNova', isAdmin: false, banned: false },
-    { name: 'SilkRopeRita', isAdmin: false, banned: false },
-    { name: 'GentleStormm', isAdmin: false, banned: false },
-    { name: 'WhisperWillow', isAdmin: false, banned: false },
-    { name: 'CuriousPirate', isAdmin: false, banned: false }
-  ],
+  users: [],
   sessions: [],
   activeTimer: null,
   taskLibrary: [
@@ -1406,7 +1446,8 @@ function seedDemoSessions() {
     };
   });
 }
-seedDemoSessions();
+// Demo seed disabled — Firebase version starts empty.
+// seedDemoSessions();
 
 function seedDemoTasks() {
   var now = Date.now();
@@ -1495,7 +1536,8 @@ function seedDemoTasks() {
     mins: 320
   });
 }
-seedDemoTasks();
+// Demo seed disabled — Firebase version starts empty.
+// seedDemoTasks();
 
 function fmtHMS(mins) {
   var h = Math.floor(mins / 60);
@@ -1883,6 +1925,8 @@ function renderAdmin() {
   document.getElementById('cfg-subtitle').value = state.config.subtitle;
   document.getElementById('cfg-start').value = toLocalDatetimeInput(state.config.startDate);
   document.getElementById('cfg-end').value = toLocalDatetimeInput(state.config.endDate);
+  var pwField = document.getElementById('cfg-admin-password');
+  if (pwField) pwField.value = state.config.adminPassword || 'spicy2026';
 
   // Task config
   document.getElementById('cfg-tasks-per-day').value = state.config.tasksPerDay;
@@ -3126,17 +3170,24 @@ function doLogin() {
   var password = document.getElementById('login-password').value;
   if (!username) { showToast('Please enter a username'); return; }
 
+  var newUserAdded = false;
   var user = state.users.find(function(u) { return u.name.toLowerCase() === username.toLowerCase(); });
   if (!user) {
     user = { name: username, isAdmin: false, banned: false };
     state.users.push(user);
+    newUserAdded = true;
   }
 
   if (user.banned) { showToast('🚫 You are banned from this game'); return; }
 
+  var adminPw = (state.config && state.config.adminPassword) ? state.config.adminPassword : ADMIN_PASSWORD;
   state.currentUser = user.name;
-  state.isAdmin = (password === ADMIN_PASSWORD) || user.isAdmin;
-  if (password === ADMIN_PASSWORD) user.isAdmin = true;
+  state.isAdmin = (password === adminPw) || user.isAdmin;
+  var promotedToAdmin = false;
+  if (password === adminPw && !user.isAdmin) { user.isAdmin = true; promotedToAdmin = true; }
+
+  // Persist a newly-created user or a new admin promotion to the shared DB
+  if (newUserAdded || promotedToAdmin) saveState();
 
   // Clear any active timer in state — we'll restore from THIS user's localStorage if present
   state.activeTimer = null;
@@ -3696,9 +3747,12 @@ function saveConfig() {
   state.config.subtitle = subtitle;
   state.config.startDate = start;
   state.config.endDate = end;
+  var pw = document.getElementById('cfg-admin-password').value.trim();
+  if (pw) state.config.adminPassword = pw;
   showToast('✓ Game config saved');
   renderHeader();
   updateCountdown();
+  renderAll();
 }
 
 function toggleAdminRole(name) {
@@ -4009,6 +4063,124 @@ function leaveAgeGate() {
   }
 }
 
+// ============== FIREBASE SYNC LAYER ==============
+// The shared game lives in a single Firestore document: games/theplayrace.
+// We hold the whole shared state there, save (debounced) on local changes,
+// and listen for remote changes to keep every device in sync.
+
+var FB_DOC_PATH = ['games', 'theplayrace'];
+var fbDocRef = null;
+var applyingRemote = false;   // true while we're applying a remote snapshot (suppresses save)
+var saveTimer = null;
+var lastSavedJson = null;
+var firebaseConnected = false;
+
+// The slice of state that is SHARED across all devices (everything except
+// per-device things: currentUser, isAdmin, activeTimer).
+function getSharedState() {
+  return {
+    config: state.config,
+    users: state.users,
+    sessions: state.sessions,
+    taskLibrary: state.taskLibrary,
+    taskInstances: state.taskInstances,
+    failedClaims: state.failedClaims,
+    dailyAwards: state.dailyAwards,
+    taskActivity: state.taskActivity,
+    manualAdjustments: state.manualAdjustments,
+    transferSnapshots: state.transferSnapshots,
+    pendingTransfer: state.pendingTransfer,
+    endGameAwardsApplied: state.endGameAwardsApplied,
+    endGameBonuses: state.endGameBonuses
+  };
+}
+
+function applySharedState(data) {
+  if (!data) return;
+  if (data.config) state.config = data.config;
+  if (data.users) state.users = data.users;
+  if (data.sessions) state.sessions = data.sessions;
+  if (data.taskLibrary) state.taskLibrary = data.taskLibrary;
+  if (data.taskInstances) state.taskInstances = data.taskInstances;
+  if (data.failedClaims) state.failedClaims = data.failedClaims;
+  if (data.dailyAwards) state.dailyAwards = data.dailyAwards;
+  if (data.taskActivity) state.taskActivity = data.taskActivity;
+  if (data.manualAdjustments) state.manualAdjustments = data.manualAdjustments;
+  if (data.transferSnapshots) state.transferSnapshots = data.transferSnapshots;
+  if (typeof data.pendingTransfer !== 'undefined') state.pendingTransfer = data.pendingTransfer;
+  if (typeof data.endGameAwardsApplied !== 'undefined') state.endGameAwardsApplied = data.endGameAwardsApplied;
+  if (data.endGameBonuses) state.endGameBonuses = data.endGameBonuses;
+}
+
+// Debounced save to Firestore. Called after any local state mutation.
+function saveState() {
+  if (applyingRemote) return;       // don't echo a remote change back
+  if (!firebaseConnected || !fbDocRef) return;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(doSave, 400);
+}
+
+function doSave() {
+  if (!firebaseConnected || !fbDocRef) return;
+  var shared = getSharedState();
+  var json = JSON.stringify(shared);
+  if (json === lastSavedJson) return;  // nothing changed
+  lastSavedJson = json;
+  // Firestore needs plain objects; JSON round-trip strips undefined & functions.
+  var clean = JSON.parse(json);
+  window.FB.setDoc(fbDocRef, clean).catch(function(err) {
+    console.error('Firestore save failed', err);
+    showToast('⚠ Save failed — check connection');
+  });
+}
+
+// Wrap renderAll so every render also schedules a save (unless applying remote).
+var _renderAll_inner = renderAll;
+renderAll = function() {
+  _renderAll_inner();
+  saveState();
+};
+
+function onFirebaseReadyImpl() {
+  fbDocRef = window.FB.doc(window.FB.db, FB_DOC_PATH[0], FB_DOC_PATH[1]);
+  firebaseConnected = true;
+
+  // Subscribe to live updates from all devices.
+  window.FB.onSnapshot(fbDocRef, function(snap) {
+    if (snap.exists()) {
+      var data = snap.data();
+      applyingRemote = true;
+      applySharedState(data);
+      lastSavedJson = JSON.stringify(getSharedState());
+      applyingRemote = false;
+      // Re-render with whatever is currently on screen
+      if (state.currentUser) {
+        _renderAll_inner();
+      } else {
+        // Not logged in yet — just refresh header/countdown bits
+        renderHeader();
+        updateCountdown();
+      }
+    } else {
+      // No game doc yet — create it from our starting (empty) state.
+      doSave();
+    }
+  }, function(err) {
+    console.error('Firestore listener error', err);
+    showToast('⚠ Live sync error');
+  });
+}
+
+window.onFirebaseReady = onFirebaseReadyImpl;
+window.onFirebaseError = function(err) {
+  showToast('⚠ Could not connect to the game server');
+};
+
+// If Firebase was already ready before this script ran, kick it off now.
+if (window.FB && window.FB.ready) {
+  onFirebaseReadyImpl();
+}
+
 // ============== INIT ==============
 populateToySelects();
 updateCountdown();
@@ -4021,6 +4193,7 @@ checkAgeGate();
 // Task system periodic check — every 10 seconds, check for new spawns,
 // expired claims, and daily awards. Re-render tasks if logged in.
 function tickTasks() {
+  var before = firebaseConnected ? JSON.stringify(getSharedState()) : null;
   checkAndSpawnTasks();
   checkExpiredClaims();
   checkDailyAwards();
@@ -4028,6 +4201,11 @@ function tickTasks() {
     renderTasks();
     // Re-render overall to update points if tasks completed/awards given
     renderOverall();
+  }
+  // If the background checks changed shared state, push it to Firestore.
+  if (before !== null && !applyingRemote) {
+    var after = JSON.stringify(getSharedState());
+    if (after !== before) saveState();
   }
 }
 
