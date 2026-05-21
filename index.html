@@ -359,6 +359,7 @@
 
   /* Honour banner */
   .honour-banner { background: rgba(255,215,0,0.05); border: 1px solid rgba(255,215,0,0.25); padding: 0.55rem 0.85rem; margin-bottom: 1rem; font-size: 0.72rem; color: var(--gold); text-align: center; line-height: 1.45; letter-spacing: 0.03em; }
+  .pw-default-warning { background: rgba(255,159,67,0.1); border: 1px solid rgba(255,159,67,0.4); padding: 0.6rem 0.8rem; margin: 0.5rem 0; font-size: 0.72rem; color: var(--orange); line-height: 1.5; }
 
   /* Game-state banner for Timer/Tasks tabs when pre or ended */
   .game-state-banner {
@@ -605,6 +606,7 @@
     <div class="modal-row">
       <label class="field-label">Admin Password (Optional)</label>
       <input class="input" id="login-password" type="password" placeholder="Leave blank for player">
+      <span id="login-pw-hint" style="font-size:0.66rem;color:var(--muted);display:none">Default admin password: <b id="login-pw-hint-value">spicy2026</b></span>
     </div>
     <div class="modal-actions">
       <button class="btn btn-start" onclick="doLogin()">Enter &amp; Play</button>
@@ -993,6 +995,7 @@
           <label class="field-label">Admin Password</label>
           <input type="text" class="input" id="cfg-admin-password" placeholder="spicy2026">
         </div>
+        <div class="pw-default-warning" id="pw-default-warning" style="display:none">⚠ You're still using the default password (<b>spicy2026</b>). Anyone who knows it can become an admin — change it before the game goes live.</div>
         <div class="cat-desc">Anyone who logs in with this password becomes an admin. Change it to control who has admin access. Note: this is a casual gate, not strong security — keep it private.</div>
         <button class="btn btn-secondary btn-small" onclick="saveConfig()">Save Configuration</button>
       </div>
@@ -1188,7 +1191,7 @@
   </div>
 
   <footer class="app-footer">
-    <span class="app-version">v31.0</span>
+    <span class="app-version">v32.0</span>
   </footer>
 </div>
 
@@ -1549,6 +1552,11 @@ function escapeHtml(str) {
   });
 }
 
+// Escape a string for safe inclusion inside a single-quoted JS string in an onclick attribute
+function escapeJs(str) {
+  return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
 // Custom confirm modal — replaces native confirm() which is unreliable on mobile
 function customConfirm(message, options) {
   options = options || {};
@@ -1603,6 +1611,12 @@ function renderHeader() {
   document.title = state.config.name;
   var banner = document.getElementById('welcome-banner');
   if (banner) banner.textContent = '⚜ Welcome to ' + state.config.name + ' · log your play, climb the board';
+  // Login hint: only show the default password while it's still the default
+  var hint = document.getElementById('login-pw-hint');
+  if (hint) {
+    var isDefault = (state.config.adminPassword || 'spicy2026') === 'spicy2026';
+    hint.style.display = isDefault ? '' : 'none';
+  }
   var badge = document.getElementById('game-badge');
   if (badge) {
     var gs = getGameState();
@@ -1907,6 +1921,11 @@ function renderAdmin() {
   document.getElementById('cfg-end').value = toLocalDatetimeInput(state.config.endDate);
   var pwField = document.getElementById('cfg-admin-password');
   if (pwField) pwField.value = state.config.adminPassword || 'spicy2026';
+  var pwWarn = document.getElementById('pw-default-warning');
+  if (pwWarn) {
+    var stillDefault = (state.config.adminPassword || 'spicy2026') === 'spicy2026';
+    pwWarn.style.display = stillDefault ? '' : 'none';
+  }
 
   // Task config
   document.getElementById('cfg-tasks-per-day').value = state.config.tasksPerDay;
@@ -1996,11 +2015,11 @@ function renderAdmin() {
     var stats = getUserStats(u.name);
     var pts = getUserPoints(u.name);
     return '<div class="admin-user-row"><div>' +
-      '<div class="admin-user-name ' + (u.banned ? 'banned' : '') + '">' + escapeHtml(u.name) + (u.isAdmin ? ' <span class="admin-user-role admin">ADMIN</span>' : '') + '</div>' +
+      '<div class="admin-user-name">' + escapeHtml(u.name) + (u.isAdmin ? ' <span class="admin-user-role admin">ADMIN</span>' : '') + '</div>' +
       '<div class="admin-user-time">' + fmtHMS(stats.totalMins) + ' · ' + stats.sessions + ' sessions · ' + pts + ' pts</div>' +
     '</div>' +
-    '<button class="btn btn-secondary btn-small" onclick="toggleAdminRole(\'' + u.name + '\')">' + (u.isAdmin ? 'Demote' : 'Promote') + '</button>' +
-    '<button class="btn ' + (u.banned ? 'btn-secondary' : 'btn-danger') + ' btn-small" onclick="toggleBan(\'' + u.name + '\')">' + (u.banned ? 'Unban' : 'Ban') + '</button>' +
+    '<button class="btn btn-secondary btn-small" onclick="toggleAdminRole(\'' + escapeJs(u.name) + '\')">' + (u.isAdmin ? 'Demote' : 'Promote') + '</button>' +
+    '<button class="btn btn-danger btn-small" onclick="deleteUser(\'' + escapeJs(u.name) + '\')">Delete</button>' +
     '</div>';
   }).join('');
 
@@ -3816,15 +3835,40 @@ function toggleAdminRole(name) {
   renderAdmin();
 }
 
-async function toggleBan(name) {
+async function deleteUser(name) {
   var u = state.users.find(function(x) { return x.name === name; });
   if (!u) return;
-  if (!u.banned) {
-    var ok = await customConfirm('Ban ' + name + '? Their data will be hidden from leaderboards.', { title: 'Ban Player', okText: 'Ban' });
-    if (!ok) return;
+  var stats = getUserStats(name);
+  var ok = await customConfirm(
+    'Delete ' + name + ' completely? This removes the player and all their data — ' +
+    stats.sessions + ' session(s) and any tasks they claimed or completed. This cannot be undone.',
+    { title: 'Delete Player', okText: 'Delete' });
+  if (!ok) return;
+
+  // Remove the player from the roster
+  state.users = state.users.filter(function(x) { return x.name !== name; });
+  // Remove their sessions
+  state.sessions = state.sessions.filter(function(s) { return s.user !== name; });
+  // Release/remove task instances they claimed or completed
+  state.taskInstances = state.taskInstances.filter(function(t) {
+    return t.claimedBy !== name;
+  });
+  // Remove their failed-claim records
+  if (state.failedClaims) {
+    state.failedClaims = state.failedClaims.filter(function(f) { return f.user !== name; });
   }
-  u.banned = !u.banned;
-  showToast(name + ' ' + (u.banned ? 'banned' : 'unbanned'));
+  // Remove their daily awards
+  state.dailyAwards = state.dailyAwards.filter(function(a) { return a.user !== name; });
+  // Remove their manual adjustments
+  state.manualAdjustments = state.manualAdjustments.filter(function(a) { return a.user !== name; });
+  // Remove their end-game bonuses
+  state.endGameBonuses = state.endGameBonuses.filter(function(b) { return b.user !== name; });
+  // Remove their task-activity entries
+  if (state.taskActivity) {
+    state.taskActivity = state.taskActivity.filter(function(a) { return a.user !== name; });
+  }
+
+  showToast(name + ' deleted');
   renderAll();
 }
 
@@ -3926,12 +3970,30 @@ async function importBackup(event) {
   event.target.value = '';
 }
 async function resetGame() {
-  var ok1 = await customConfirm('RESET ALL SESSIONS? This cannot be undone (without a backup).', { title: 'Reset Game', okText: 'Reset' });
+  var ok1 = await customConfirm('RESET THE WHOLE GAME? This wipes all players, sessions, tasks, points, and transfers. The task library is kept. This cannot be undone (without a backup).', { title: 'Reset Game', okText: 'Reset' });
   if (!ok1) return;
-  var ok2 = await customConfirm('Are you really sure? All session data will be wiped.', { title: 'Final Confirmation', okText: 'Yes, reset' });
+  var ok2 = await customConfirm('Are you really sure? Everything except the task library will be wiped, and the admin password will reset to the default.', { title: 'Final Confirmation', okText: 'Yes, reset everything' });
   if (!ok2) return;
+  // Wipe all shared game data EXCEPT the task library (your 100 tasks stay).
+  state.users = [];
   state.sessions = [];
-  showToast('🔄 Game reset');
+  state.taskInstances = [];
+  state.failedClaims = [];
+  state.dailyAwards = [];
+  state.taskActivity = [];
+  state.manualAdjustments = [];
+  state.transferSnapshots = [];
+  state.pendingTransfer = null;
+  state.endGameBonuses = [];
+  state.endGameAwardsApplied = false;
+  // Reset admin password back to the default.
+  state.config.adminPassword = 'spicy2026';
+  // The person resetting stays admin for this session, but is no longer in the (now-empty) roster.
+  // Re-add them so they remain in the roster as an admin.
+  if (state.currentUser) {
+    state.users.push({ name: state.currentUser, isAdmin: true, banned: false });
+  }
+  showToast('🔄 Game fully reset · password back to default');
   renderAll();
 }
 
