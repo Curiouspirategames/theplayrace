@@ -568,17 +568,11 @@
 
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 2000; padding: 1rem; }
 
-  /* Age gate */
-  .age-gate-modal { max-width: 440px; text-align: center; padding: 1.6rem 1.2rem; }
-  .age-gate-icon { font-size: 2.5rem; margin-bottom: 0.5rem; line-height: 1; }
-  .age-gate-modal h2 { color: var(--accent); margin-bottom: 0.8rem; }
-  .age-gate-text { font-size: 0.85rem; color: var(--text); margin-bottom: 0.8rem; line-height: 1.5; }
-  .age-gate-list { text-align: left; font-size: 0.75rem; color: var(--muted); line-height: 1.6; margin: 0.4rem 0 1.2rem 0; padding-left: 1.2rem; }
-  .age-gate-list li { margin-bottom: 0.25rem; }
-  .age-gate-list b { color: var(--text); }
-  .age-gate-actions { display: flex; flex-direction: column; gap: 0.5rem; }
-  .age-gate-confirm { width: 100%; padding: 0.85rem; font-size: 0.85rem; }
   .modal { background: var(--bg2); border: 1px solid var(--border2); padding: 1.5rem; width: 100%; max-width: 400px; position: relative; }
+  .login-guest-row { margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid var(--border); text-align: center; display: flex; flex-direction: column; gap: 0.4rem; align-items: center; }
+  .login-guest-row > span { font-size: 0.72rem; color: var(--muted); }
+  .btn-link { background: none; border: none; color: var(--accent); font-family: 'Orbitron', monospace; font-size: 0.74rem; font-weight: 700; letter-spacing: 0.05em; cursor: pointer; padding: 0.3rem; transition: color 0.15s; }
+  .btn-link:hover { color: var(--accent2); text-decoration: underline; }
   .modal::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--accent2), var(--accent)); }
   .modal h2 { font-family: 'Orbitron', monospace; font-size: 1rem; letter-spacing: 0.1em; margin-bottom: 1rem; text-align: center; }
   .modal-row { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.8rem; }
@@ -601,40 +595,23 @@
 <div class="blob blob2"></div>
 <div class="toast" id="toast"></div>
 
-<!-- Age gate - shown on first visit per device -->
-<div class="modal-overlay" id="age-gate-modal" style="display:none">
-  <div class="modal age-gate-modal">
-    <div class="age-gate-icon">🔞</div>
-    <h2>Adult Content</h2>
-    <p class="age-gate-text">
-      This app contains adult content related to sexual activity. By entering you confirm:
-    </p>
-    <ul class="age-gate-list">
-      <li>You are <b>18 or over</b> (or the age of majority in your region)</li>
-      <li>You consent to viewing adult content</li>
-      <li>It is legal to view such content in your jurisdiction</li>
-    </ul>
-    <div class="age-gate-actions">
-      <button class="btn btn-start age-gate-confirm" onclick="confirmAgeGate()">I confirm — let me in</button>
-      <button class="btn btn-secondary" onclick="leaveAgeGate()">Leave</button>
-    </div>
-  </div>
-</div>
-
 <div class="modal-overlay" id="login-modal">
   <div class="modal">
     <h2>Join the Game</h2>
     <div class="modal-row">
       <label class="field-label">Discord Username</label>
-      <input class="input" id="login-username" placeholder="e.g. CuriousPirate" value="CuriousPirate">
+      <input class="input" id="login-username" placeholder="Your name">
     </div>
     <div class="modal-row">
       <label class="field-label">Admin Password (Optional)</label>
       <input class="input" id="login-password" type="password" placeholder="Leave blank for player">
-      <span style="font-size:0.6rem;color:var(--muted)">Demo password: <b>spicy2026</b></span>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-start" onclick="doLogin()">Enter</button>
+      <button class="btn btn-start" onclick="doLogin()">Enter &amp; Play</button>
+    </div>
+    <div class="login-guest-row">
+      <span>Just want to look around?</span>
+      <button class="btn-link" onclick="enterGuest()">Browse as guest →</button>
     </div>
   </div>
 </div>
@@ -652,10 +629,10 @@
       <span class="auth-username" id="auth-username">—</span>
       <span class="auth-role" id="auth-role">player</span>
     </div>
-    <button class="btn btn-secondary btn-small" onclick="logout()">Switch user</button>
+    <button class="btn btn-secondary btn-small" id="auth-switch-btn" onclick="logout()">Switch user</button>
   </div>
 
-  <div class="honour-banner">⚜ Honour system · for fun · lots of ways to climb the board</div>
+  <div class="honour-banner" id="welcome-banner">⚜ Welcome to The Play Race · log your play, climb the board</div>
 
   <!-- Persistent timer status bar — shows idle "Start" CTA when no timer, or live timer info when running -->
   <div class="timer-status-bar" id="timer-status-bar" style="display:none">
@@ -1211,7 +1188,7 @@
   </div>
 
   <footer class="app-footer">
-    <span class="app-version">v29.0</span>
+    <span class="app-version">v31.0</span>
   </footer>
 </div>
 
@@ -1341,6 +1318,7 @@ defaultEnd.setDate(defaultEnd.getDate() + 7); // default 1 week game
 var state = {
   currentUser: null,
   isAdmin: false,
+  isGuest: false,
   config: {
     name: 'The Play Race',
     subtitle: 'Who will be the horniest?',
@@ -1623,6 +1601,8 @@ function renderHeader() {
   document.getElementById('game-name').textContent = state.config.name;
   document.getElementById('game-subtitle').textContent = state.config.subtitle;
   document.title = state.config.name;
+  var banner = document.getElementById('welcome-banner');
+  if (banner) banner.textContent = '⚜ Welcome to ' + state.config.name + ' · log your play, climb the board';
   var badge = document.getElementById('game-badge');
   if (badge) {
     var gs = getGameState();
@@ -2332,6 +2312,7 @@ function getAvailableTasks() {
 }
 
 async function claimTask(id) {
+  if (state.isGuest || !state.currentUser) { showToast('Log in to play'); return; }
   var gs = getGameState();
   if (gs === 'pre') { showToast('Game hasn\'t started yet'); return; }
   if (gs === 'ended') { showToast('Game has ended'); return; }
@@ -2402,14 +2383,20 @@ function fmtRelativeTime(ts) {
 }
 
 function renderTasks() {
-  if (!state.currentUser) return;
+  if (!state.currentUser && !state.isGuest) return;
 
-  var bdsmOptedIn = getBdsmOptIn(state.currentUser);
+  // Guests have no stored BDSM preference — default to general-only view.
+  var bdsmOptedIn = state.isGuest ? false : getBdsmOptIn(state.currentUser);
 
   // BDSM toggle / status banner at top of available tasks section
   var toggleEl = document.getElementById('bdsm-toggle');
   if (toggleEl) {
-    if (bdsmOptedIn) {
+    if (state.isGuest) {
+      toggleEl.innerHTML =
+        '<div class="bdsm-toggle-bar opted-out">' +
+          '<div><span class="bdsm-icon">👀</span> Browsing as guest · General tasks shown, BDSM hidden</div>' +
+        '</div>';
+    } else if (bdsmOptedIn) {
       toggleEl.innerHTML =
         '<div class="bdsm-toggle-bar opted-in">' +
           '<div><span class="bdsm-icon">⛓️</span> <b>BDSM tasks unlocked</b> · you can see and claim BDSM-tagged tasks</div>' +
@@ -2487,7 +2474,8 @@ function renderTasks() {
 
       var failed = userHasFailedTask(state.currentUser, t.id);
       var gameLive = getGameState() === 'live';
-      var disabled = failed || !!myTask || !gameLive;
+      var canPlay = gameLive && !state.isGuest && !!state.currentUser;
+      var disabled = failed || !!myTask || !canPlay;
       var btnText = !gameLive ? 'Locked' : failed ? '🔒 Locked' : myTask ? 'Finish current first' : 'Claim';
       var bdsmTag = isBdsm ? '<span class="bdsm-task-tag">⛓️ BDSM</span>' : '';
       return '<div class="task-card ' + (failed ? 'task-locked' : '') + '">' +
@@ -3096,6 +3084,25 @@ function renderGameStateBanners() {
   var tasksBanner = document.getElementById('tasks-state-banner');
   if (!timerBanner || !tasksBanner) return;
 
+  // Guest browsing mode takes priority — show a "log in to play" prompt
+  // on the Timer and Tasks tabs, regardless of game state.
+  if (state.isGuest) {
+    var guestHtml = '<div class="gsb-icon">👀</div>'
+      + '<div class="gsb-text">'
+      +   '<div class="gsb-heading">You\'re just browsing</div>'
+      +   '<div class="gsb-sub">You\'re viewing the game as a guest, so this is read-only. '
+      +     'Want to join in? <button class="btn-link" style="font-size:inherit;padding:0" onclick="exitGuestToLogin()">Log in to play →</button></div>'
+      + '</div>';
+    timerBanner.className = 'game-state-banner pre';
+    timerBanner.innerHTML = guestHtml;
+    timerBanner.style.display = '';
+    tasksBanner.className = 'game-state-banner pre';
+    tasksBanner.innerHTML = guestHtml;
+    tasksBanner.style.display = '';
+    setControlsEnabled(false);
+    return;
+  }
+
   if (gs === 'live') {
     timerBanner.style.display = 'none';
     tasksBanner.style.display = 'none';
@@ -3165,10 +3172,54 @@ function fmtCountdown(ms) {
 
 
 
+function enterGuest() {
+  // Browse-only mode: no identity, nothing written to the database.
+  state.currentUser = null;
+  state.isAdmin = false;
+  state.isGuest = true;
+  state.activeTimer = null;
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+  resetTimerUI();
+
+  document.getElementById('login-modal').style.display = 'none';
+  document.getElementById('auth-bar').style.display = 'flex';
+  document.getElementById('auth-username').textContent = 'Guest';
+  document.getElementById('auth-role').textContent = 'browsing';
+  document.getElementById('auth-dot').classList.remove('admin');
+  document.querySelector('[data-tab="admin"]').classList.add('hidden');
+  // Make the auth bar's button say "Log in to play" instead of "Switch user"
+  updateAuthBarForGuest(true);
+
+  setTab('overall');
+  renderAll();
+}
+
+function exitGuestToLogin() {
+  state.isGuest = false;
+  updateAuthBarForGuest(false);
+  document.getElementById('login-modal').style.display = 'flex';
+  document.getElementById('auth-bar').style.display = 'none';
+}
+
+function updateAuthBarForGuest(isGuest) {
+  var btn = document.getElementById('auth-switch-btn');
+  if (!btn) return;
+  if (isGuest) {
+    btn.textContent = 'Log in to play';
+    btn.setAttribute('onclick', 'exitGuestToLogin()');
+  } else {
+    btn.textContent = 'Switch user';
+    btn.setAttribute('onclick', 'logout()');
+  }
+}
+
 function doLogin() {
   var username = document.getElementById('login-username').value.trim();
   var password = document.getElementById('login-password').value;
   if (!username) { showToast('Please enter a username'); return; }
+
+  state.isGuest = false;
+  updateAuthBarForGuest(false);
 
   var newUserAdded = false;
   var user = state.users.find(function(u) { return u.name.toLowerCase() === username.toLowerCase(); });
@@ -3330,6 +3381,7 @@ function getElapsedSecs() {
 
 function startTimer() {
   if (state.activeTimer) return;
+  if (state.isGuest || !state.currentUser) { showToast('Log in to play'); return; }
   var gs = getGameState();
   if (gs === 'pre') { showToast('Game hasn\'t started yet'); return; }
   if (gs === 'ended') { showToast('Game has ended'); return; }
@@ -3696,6 +3748,7 @@ function toggleManualLog() {
 }
 
 function submitManual() {
+  if (state.isGuest || !state.currentUser) { showToast('Log in to play'); return; }
   var gs = getGameState();
   if (gs === 'pre') { showToast('Game hasn\'t started yet'); return; }
   if (gs === 'ended') { showToast('Game has ended'); return; }
@@ -4040,29 +4093,6 @@ function populateToySelects() {
   document.getElementById('manual-toy').innerHTML = manualHtml;
 }
 
-// ============== AGE GATE ==============
-function checkAgeGate() {
-  if (localStorage.getItem('mm-age-confirmed') === '1') return true;
-  document.getElementById('age-gate-modal').style.display = 'flex';
-  // Hide login modal until age confirmed
-  document.getElementById('login-modal').style.display = 'none';
-  return false;
-}
-function confirmAgeGate() {
-  localStorage.setItem('mm-age-confirmed', '1');
-  document.getElementById('age-gate-modal').style.display = 'none';
-  // Now show the login modal
-  document.getElementById('login-modal').style.display = 'flex';
-}
-function leaveAgeGate() {
-  // Best-effort: navigate away. Some browsers block window.close so fall back to a friendly message.
-  try {
-    window.location.href = 'about:blank';
-  } catch (e) {
-    document.getElementById('age-gate-modal').innerHTML = '<div class="modal age-gate-modal"><h2>Goodbye</h2><p class="age-gate-text">Please close this tab.</p></div>';
-  }
-}
-
 // ============== FIREBASE SYNC LAYER ==============
 // The shared game lives in a single Firestore document: games/theplayrace.
 // We hold the whole shared state there, save (debounced) on local changes,
@@ -4186,9 +4216,6 @@ populateToySelects();
 updateCountdown();
 setInterval(updateCountdown, 1000);
 renderHeader();
-
-// Show age gate first if needed
-checkAgeGate();
 
 // Task system periodic check — every 10 seconds, check for new spawns,
 // expired claims, and daily awards. Re-render tasks if logged in.
