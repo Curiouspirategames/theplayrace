@@ -1201,7 +1201,7 @@
   </div>
 
   <footer class="app-footer">
-    <span class="app-version">v36.0</span>
+    <span class="app-version">v38.0</span>
   </footer>
 </div>
 
@@ -2337,26 +2337,35 @@ function checkAndSpawnTasks() {
       var alreadySpawned = state.taskInstances.some(function(t) { return t.spawnId === spawnId; });
       if (alreadySpawned) continue;
 
+      // Deterministic template pick seeded by the spawn slot, so EVERY device
+      // independently chooses the SAME template for this slot. This means even
+      // if several devices spawn the same slot before syncing, the instances
+      // are identical (same id, same template) and merge harmlessly — no
+      // duplicate/flickering tasks across 20 players.
+      var slotSeed = (d * 1000 + i) * 9301 + 49297;
+      function slotRandom() {
+        slotSeed = (slotSeed * 9301 + 49297) % 233280;
+        return slotSeed / 233280;
+      }
+
       // Option B: ensure at least one General task is always available
-      // Check current pool — if no General task is available, force this one to be General
       var generalAvailable = state.taskInstances.some(function(t) {
         return t.status === 'available' && (!t.tag || t.tag === 'general');
       });
 
       var generalTemplates = state.taskLibrary.filter(function(t) { return !t.tag || t.tag === 'general'; });
-      var bdsmTemplates = state.taskLibrary.filter(function(t) { return t.tag === 'bdsm'; });
 
       var template;
       if (!generalAvailable && generalTemplates.length > 0) {
         // Force a General task to ensure opted-out users always have something
-        template = generalTemplates[Math.floor(Math.random() * generalTemplates.length)];
+        template = generalTemplates[Math.floor(slotRandom() * generalTemplates.length)];
       } else {
-        // Pick freely from the whole library
-        template = state.taskLibrary[Math.floor(Math.random() * state.taskLibrary.length)];
+        // Pick freely from the whole library (deterministic by slot)
+        template = state.taskLibrary[Math.floor(slotRandom() * state.taskLibrary.length)];
       }
 
       state.taskInstances.push({
-        id: uidTask(),
+        id: spawnId,  // deterministic id = spawnId, so duplicate spawns collapse on merge
         spawnId: spawnId,
         templateId: template.id,
         title: template.title,
@@ -2381,11 +2390,15 @@ function checkExpiredClaims() {
   var windowMs = state.config.claimWindowMins * 60 * 1000;
   state.taskInstances.forEach(function(t) {
     if (t.status === 'claimed' && (now - t.claimedAt) > windowMs) {
-      // Auto-fail
+      // Auto-fail. Guard against duplicate failedClaims from multiple devices.
+      var already = state.failedClaims.some(function(f) {
+        return f.user === t.claimedBy && f.taskInstanceId === t.id;
+      });
       t.status = 'available';
-      // Lock this user from re-claiming this instance
-      state.failedClaims.push({ user: t.claimedBy, taskInstanceId: t.id });
-      logTaskActivity('<b>' + escapeHtml(t.claimedBy) + '</b> ran out of time on <b>' + escapeHtml(t.title) + '</b>', 'failed');
+      if (!already) {
+        state.failedClaims.push({ user: t.claimedBy, taskInstanceId: t.id });
+        logTaskActivity('<b>' + escapeHtml(t.claimedBy) + '</b> ran out of time on <b>' + escapeHtml(t.title) + '</b>', 'failed');
+      }
       t.claimedBy = null;
       t.claimedAt = null;
     }
@@ -2658,7 +2671,7 @@ function checkDailyAwards() {
       var pts = tiers[place];
       if (pts > 0) {
         state.dailyAwards.push({
-          id: uidTask(),
+          id: 'daily-' + d + '-' + (place + 1) + '-' + ranked[i].user,  // deterministic: same award from any device collapses on merge
           user: ranked[i].user,
           points: pts,
           place: place + 1,
@@ -3149,7 +3162,7 @@ async function applyEndGameAwards() {
 
   var awards = JSON.parse(awardsJson);
   awards.forEach(function(a) {
-    state.endGameBonuses.push({ user: a.user, points: a.points, board: a.board, place: a.place });
+    state.endGameBonuses.push({ id: 'eg-' + a.board + '-' + a.place + '-' + a.user, user: a.user, points: a.points, board: a.board, place: a.place });
   });
   state.endGameAwardsApplied = true;
   logTaskActivity('🏆 End-of-game bonuses applied: ' + awards.length + ' awards across ' + (Object.keys(awards.reduce(function(acc, a) { acc[a.board]=1; return acc; }, {})).length) + ' boards', 'completed');
@@ -3778,6 +3791,11 @@ async function submitSession() {
     if (!ok) return;
   }
   var mins = Math.max(1, Math.round(elapsedSecs / 60));
+  // Catch forgotten timers: anything over 3 hours is almost certainly left running.
+  if (mins > 180) {
+    var okLong = await customConfirm('This session is ' + fmtHMS(mins) + ' long — did you leave the timer running by accident? Submit it anyway?', { title: 'Very Long Session', okText: 'Submit', danger: false });
+    if (!okLong) return;
+  }
   var finalMode = getSelectedMode();
 
   state.sessions.push({
@@ -4302,6 +4320,8 @@ var lastSavedJson = null;
 var firebaseConnected = false;
 var hasLoadedFromFirestore = false;  // CRITICAL: block all saves until we've loaded existing data once
 var fbDataExists = false;            // whether the game doc already exists in Firestore
+var gameUnsub = null;                // current onSnapshot unsubscribe fn (so we can re-subscribe on error)
+var syncErrorCount = 0;              // consecutive listener errors, for backoff
 
 // The slice of state that is SHARED across all devices (everything except
 // per-device things: currentUser, isAdmin, activeTimer).
@@ -4327,21 +4347,122 @@ function getSharedState() {
 
 function applySharedState(data) {
   if (!data) return;
+  var hadLocalAdditions = false;
   if (data.config) state.config = data.config;
-  if (data.users) state.users = data.users;
-  if (data.sessions) state.sessions = data.sessions;
-  // taskLibrary is handled separately (see LIBRARY SYNC) and deliberately
-  // ignored here even if an old client includes it, so the busy game-state
-  // sync can never overwrite the protected library.
-  if (data.taskInstances) state.taskInstances = data.taskInstances;
+  if (data.users) state.users = mergeUsers(state.users, data.users);
+  // ADDITIVE data (sessions, awards, adjustments, activity, bonuses): MERGE by
+  // union of ids rather than replace. This is critical for simultaneous writes:
+  // if two devices submit at once and one's write overwrites the other in the
+  // cloud, the "losing" device must keep its own just-added entry locally so
+  // the next save restores it — otherwise that session is lost forever.
+  if (data.sessions) {
+    var mergedSessions = mergeById(state.sessions, data.sessions, 'id');
+    if (mergedSessions.localExtras) hadLocalAdditions = true;
+    state.sessions = mergedSessions.list;
+  }
+  // taskLibrary handled separately (LIBRARY SYNC); ignored here.
+  // taskInstances: these are claim-state objects, not purely additive — the
+  // incoming version is authoritative for claim status, but we still keep any
+  // instance the incoming set is missing (e.g. a just-spawned one), keyed by id.
+  if (data.taskInstances) {
+    var mergedInst = mergeById(state.taskInstances, data.taskInstances, 'id', true /* incoming wins on conflict */);
+    if (mergedInst.localExtras) hadLocalAdditions = true;
+    state.taskInstances = mergedInst.list;
+  }
   if (data.failedClaims) state.failedClaims = data.failedClaims;
-  if (data.dailyAwards) state.dailyAwards = data.dailyAwards;
-  if (data.taskActivity) state.taskActivity = data.taskActivity;
-  if (data.manualAdjustments) state.manualAdjustments = data.manualAdjustments;
+  if (data.dailyAwards) {
+    var mergedAwards = mergeById(state.dailyAwards, data.dailyAwards, 'id');
+    if (mergedAwards.localExtras) hadLocalAdditions = true;
+    state.dailyAwards = mergedAwards.list;
+  }
+  if (data.taskActivity) state.taskActivity = mergeActivity(state.taskActivity, data.taskActivity);
+  if (data.manualAdjustments) {
+    var mergedAdj = mergeById(state.manualAdjustments, data.manualAdjustments, 'id');
+    if (mergedAdj.localExtras) hadLocalAdditions = true;
+    state.manualAdjustments = mergedAdj.list;
+  }
   if (data.transferSnapshots) state.transferSnapshots = data.transferSnapshots;
   if (typeof data.pendingTransfer !== 'undefined') state.pendingTransfer = data.pendingTransfer;
   if (typeof data.endGameAwardsApplied !== 'undefined') state.endGameAwardsApplied = data.endGameAwardsApplied;
-  if (data.endGameBonuses) state.endGameBonuses = data.endGameBonuses;
+  if (data.endGameBonuses) {
+    var mergedBonus = mergeById(state.endGameBonuses, data.endGameBonuses, 'id');
+    if (mergedBonus.localExtras) hadLocalAdditions = true;
+    state.endGameBonuses = mergedBonus.list;
+  }
+  // If our local state had entries the incoming snapshot lacked (an un-synced
+  // addition that lost a write race), schedule a save to push the union back
+  // out so every device — and the cloud — ends up with the complete set.
+  if (hadLocalAdditions) {
+    setTimeout(function() { if (hasLoadedFromFirestore && !applyingRemote) { lastSavedJson = null; saveState(); } }, 200);
+  }
+}
+
+// Merge two arrays of objects by a key. Incoming entries are included; local
+// entries NOT present in incoming are preserved (these are un-synced local
+// additions that must not be lost). Returns {list, localExtras}.
+// If incomingWins is true, when an id exists in both, the incoming version is
+// used (authoritative for mutable objects like task claim-state); otherwise the
+// existing local copy is kept for ids in both.
+function mergeById(local, incoming, key, incomingWins) {
+  local = Array.isArray(local) ? local : [];
+  incoming = Array.isArray(incoming) ? incoming : [];
+  var incomingIds = {};
+  incoming.forEach(function(e) { if (e && typeof e[key] !== 'undefined') incomingIds[e[key]] = true; });
+  var localExtras = false;
+  var result = incoming.slice();
+  // Append any local entry whose id isn't in the incoming set.
+  local.forEach(function(e) {
+    if (e && typeof e[key] !== 'undefined' && !incomingIds[e[key]]) {
+      result.push(e);
+      localExtras = true;
+    }
+  });
+  // De-dupe (incomingWins handled implicitly: incoming entries come first, and
+  // dedupeById keeps the LAST occurrence — so if we want incoming to win, we
+  // must keep incoming. Reorder accordingly.)
+  if (incomingWins) {
+    // local extras already appended after incoming; for ids in both, incoming
+    // is earlier and local isn't appended (filtered above), so incoming wins.
+    // Dedupe to collapse any duplicate ids that exist within the incoming set
+    // itself (keeps last occurrence — fine for identical-id instances).
+    return { list: dedupeById(result, key), localExtras: localExtras };
+  } else {
+    // For purely additive data it doesn't matter (ids in both are identical
+    // entries), so a straight de-dupe keeping last is fine.
+    return { list: dedupeById(result, key), localExtras: localExtras };
+  }
+}
+
+// Users keyed by name (case-insensitive). Union; incoming wins on conflict
+// (so admin/ban status changes propagate), but a locally-added user not yet in
+// the incoming set is preserved.
+function mergeUsers(local, incoming) {
+  local = Array.isArray(local) ? local : [];
+  incoming = Array.isArray(incoming) ? incoming : [];
+  var byName = {};
+  incoming.forEach(function(u) { if (u && u.name) byName[u.name.toLowerCase()] = u; });
+  local.forEach(function(u) {
+    if (u && u.name && !byName[u.name.toLowerCase()]) byName[u.name.toLowerCase()] = u;
+  });
+  return Object.keys(byName).map(function(k) { return byName[k]; });
+}
+
+// Activity log: union by id, keep most recent 50 by timestamp.
+function mergeActivity(local, incoming) {
+  var merged = mergeById(local, incoming, 'id').list;
+  merged.sort(function(a, b) { return (b.timestamp||0) - (a.timestamp||0); });
+  return merged.slice(0, 50);
+}
+
+// Remove duplicate entries sharing the same key value, keeping the LAST one.
+function dedupeById(arr, key) {
+  if (!Array.isArray(arr)) return arr;
+  var seen = {};
+  for (var i = 0; i < arr.length; i++) {
+    if (arr[i] && typeof arr[i][key] !== 'undefined') seen[arr[i][key]] = arr[i];
+    else seen['__nokey_' + i] = arr[i];
+  }
+  return Object.keys(seen).map(function(k) { return seen[k]; });
 }
 
 // Debounced save to Firestore. Called after any local state mutation.
@@ -4359,16 +4480,26 @@ function doSave() {
   var shared = getSharedState();
   var json = JSON.stringify(shared);
   if (json === lastSavedJson) return;  // nothing changed
-  lastSavedJson = json;
   // Firestore needs plain objects; JSON round-trip strips undefined & functions.
   var clean = JSON.parse(json);
   window.FB.setDoc(fbDocRef, clean).then(function() {
+    lastSavedJson = json;   // only mark as saved once it actually succeeded
+    saveRetryCount = 0;
     maybeBackup();
   }).catch(function(err) {
     console.error('Firestore save failed', err);
-    showToast('⚠ Save failed — check connection');
+    // Don't update lastSavedJson — so the change is still considered unsaved.
+    // Retry with backoff; the data stays in local state meanwhile.
+    saveRetryCount++;
+    if (saveRetryCount <= 5) {
+      var backoff = Math.min(20000, 1500 * saveRetryCount);
+      setTimeout(doSave, backoff);
+    } else {
+      showToast('⚠ Save failing — your data is held locally; keep the app open until it reconnects');
+    }
   });
 }
+var saveRetryCount = 0;
 
 // Wrap renderAll so every render also schedules a save (unless applying remote).
 var _renderAll_inner = renderAll;
@@ -4380,9 +4511,28 @@ renderAll = function() {
 function onFirebaseReadyImpl() {
   fbDocRef = window.FB.doc(window.FB.db, FB_DOC_PATH[0], FB_DOC_PATH[1]);
   firebaseConnected = true;
+  subscribeGameDoc();
 
-  // Subscribe to live updates from all devices.
-  window.FB.onSnapshot(fbDocRef, function(snap) {
+  // Safety net: if the listener hasn't delivered a first snapshot within a few
+  // seconds (slow/flaky connection, or a silently-failed listener), do a direct
+  // one-time read to establish state and UNBLOCK saving. Without this, a device
+  // whose listener never fires would be able to read nothing and — worse —
+  // would be permanently unable to save (hasLoadedFromFirestore stuck false).
+  setTimeout(function() {
+    if (!hasLoadedFromFirestore) {
+      console.warn('Snapshot slow to arrive — doing a direct read to establish state.');
+      directLoadFallback();
+    }
+  }, 6000);
+
+  // Also subscribe to the SEPARATE, protected task-library document.
+  subscribeLibrary();
+}
+
+function subscribeGameDoc() {
+  if (gameUnsub) { try { gameUnsub(); } catch(e){} }
+  gameUnsub = window.FB.onSnapshot(fbDocRef, function(snap) {
+    syncErrorCount = 0;  // a successful snapshot clears the error streak
     if (snap.exists()) {
       var data = snap.data();
       applyingRemote = true;
@@ -4391,30 +4541,64 @@ function onFirebaseReadyImpl() {
       applyingRemote = false;
       fbDataExists = true;
       hasLoadedFromFirestore = true;   // we now hold the authoritative shared state
-      // Re-render with whatever is currently on screen
       if (state.currentUser || state.isGuest) {
         _renderAll_inner();
       } else {
-        // Not logged in yet — just refresh header/countdown bits
         renderHeader();
         updateCountdown();
       }
     } else {
-      // No game doc exists yet. This device may create it — but ONLY if we're
-      // confident the doc is genuinely absent (first ever load of the game),
-      // not just slow to arrive. Mark as loaded so the (legitimately empty)
-      // starting state can be written as the initial doc.
+      // No game doc exists yet (first ever run). Create it from our starting state.
       fbDataExists = false;
       hasLoadedFromFirestore = true;
       doSave();
     }
   }, function(err) {
     console.error('Firestore listener error', err);
-    showToast('⚠ Live sync error');
+    syncErrorCount++;
+    // A failed listener must NOT leave the device permanently unable to save.
+    // Establish load state via a direct read so saving still works, and try to
+    // re-subscribe so live updates resume.
+    directLoadFallback();
+    if (syncErrorCount <= 5) {
+      var backoff = Math.min(30000, 2000 * syncErrorCount);
+      setTimeout(function() {
+        if (firebaseConnected) subscribeGameDoc();
+      }, backoff);
+      showToast('⚠ Reconnecting…');
+    } else {
+      showToast('⚠ Sync trouble — your changes are saved locally and will sync when the connection recovers');
+    }
   });
+}
 
-  // Also subscribe to the SEPARATE, protected task-library document.
-  subscribeLibrary();
+// Direct one-time read to establish state when the live listener can't.
+// Critically, this sets hasLoadedFromFirestore so saving is never permanently blocked.
+function directLoadFallback() {
+  if (hasLoadedFromFirestore || !fbDocRef) return;
+  window.FB.getDoc(fbDocRef).then(function(snap) {
+    if (hasLoadedFromFirestore) return;  // a snapshot may have arrived meanwhile
+    if (snap.exists()) {
+      applyingRemote = true;
+      applySharedState(snap.data());
+      lastSavedJson = JSON.stringify(getSharedState());
+      applyingRemote = false;
+      fbDataExists = true;
+    } else {
+      fbDataExists = false;
+    }
+    hasLoadedFromFirestore = true;
+    if (state.currentUser || state.isGuest) _renderAll_inner();
+    else { renderHeader(); updateCountdown(); }
+  }).catch(function(err) {
+    console.error('Direct load failed', err);
+    // Last resort: unblock saving anyway after we've clearly tried, so the user
+    // isn't stuck in a read-only void. Their local state will be written and the
+    // dedupe/merge logic protects existing data. Only do this if a doc is known
+    // to exist would be risky — but a totally failed connection means we can't
+    // tell, so we stay blocked and surface the problem instead.
+    showToast('⚠ Could not reach the game server — check your connection');
+  });
 }
 
 // ============== LIBRARY SYNC (separate protected document) ==============
@@ -4605,6 +4789,9 @@ renderHeader();
 // Task system periodic check — every 10 seconds, check for new spawns,
 // expired claims, and daily awards. Re-render tasks if logged in.
 function tickTasks() {
+  // If we're connected to Firebase but haven't loaded yet, skip — we must not
+  // spawn/award against default state before real data arrives.
+  if (firebaseConnected && !hasLoadedFromFirestore) return;
   var before = firebaseConnected ? JSON.stringify(getSharedState()) : null;
   checkAndSpawnTasks();
   checkExpiredClaims();
@@ -4621,10 +4808,26 @@ function tickTasks() {
   }
 }
 
-// Initial check on load (catches tasks that should have spawned while away)
-checkAndSpawnTasks();
-checkExpiredClaims();
-checkDailyAwards();
+// Initial check on load (catches tasks that should have spawned while away).
+// Gated behind the Firestore load so we never run spawn/award logic against
+// the default/empty state before real data arrives. Once loaded, the snapshot
+// handler and the tickTasks interval take over.
+function runInitialChecksWhenReady() {
+  if (hasLoadedFromFirestore) {
+    checkAndSpawnTasks();
+    checkExpiredClaims();
+    checkDailyAwards();
+  } else if (!firebaseConnected) {
+    // Offline / no Firebase at all (e.g. opened as a local file): run anyway
+    // so the game still functions standalone.
+    checkAndSpawnTasks();
+    checkExpiredClaims();
+    checkDailyAwards();
+  } else {
+    setTimeout(runInitialChecksWhenReady, 300);
+  }
+}
+runInitialChecksWhenReady();
 setInterval(tickTasks, 10000);
 
 // Update active task timer every second when timer tab open
