@@ -8,7 +8,7 @@
 <script type="module">
   // ===== Firebase initialisation (live shared data) =====
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp }
+  import { getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp, collection, getDocs, deleteDoc, query, orderBy, limit }
     from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
   import { getAuth, signInAnonymously, onAuthStateChanged }
     from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
@@ -30,6 +30,7 @@
   window.FB = {
     db, auth,
     doc, getDoc, setDoc, onSnapshot, serverTimestamp,
+    collection, getDocs, deleteDoc, query, orderBy, limit,
     signInAnonymously, onAuthStateChanged,
     ready: false
   };
@@ -1180,6 +1181,15 @@
     </div>
 
     <div class="admin-section">
+      <div class="section-title">☁️ Automatic Cloud Backups</div>
+      <div class="cat-desc">The game auto-saves rolling backups to the cloud (last 5 kept). If anything goes wrong, restore from here — works from any admin's device.</div>
+      <div class="admin-action-bar">
+        <button class="btn btn-secondary btn-small" onclick="refreshBackupList()">🔄 Refresh List</button>
+      </div>
+      <div id="backup-list" style="margin-top:0.6rem"></div>
+    </div>
+
+    <div class="admin-section">
       <div class="section-title">Players (<span id="player-count">0</span>)</div>
       <div id="admin-users"></div>
     </div>
@@ -1191,7 +1201,7 @@
   </div>
 
   <footer class="app-footer">
-    <span class="app-version">v32.0</span>
+    <span class="app-version">v34.0</span>
   </footer>
 </div>
 
@@ -3997,6 +4007,46 @@ async function resetGame() {
   renderAll();
 }
 
+// ===== Cloud backup admin UI =====
+function refreshBackupList() {
+  var el = document.getElementById('backup-list');
+  if (!el) return;
+  if (!firebaseConnected || typeof listBackups !== 'function') {
+    el.innerHTML = '<div class="cat-desc">Backups need a live connection. Try again once connected.</div>';
+    return;
+  }
+  el.innerHTML = '<div class="cat-desc">Loading backups…</div>';
+  listBackups().then(function(backups) {
+    if (!backups.length) {
+      el.innerHTML = '<div class="cat-desc">No backups yet. One is saved automatically a few minutes after changes are made.</div>';
+      return;
+    }
+    el.innerHTML = backups.map(function(b) {
+      var when = new Date(b.createdAt);
+      var label = when.toLocaleString();
+      return '<div class="admin-user-row">' +
+        '<div><div class="admin-user-name">' + label + '</div>' +
+        '<div class="admin-user-time">' + (b.taskCount || 0) + ' tasks · ' + (b.userCount || 0) + ' players</div></div>' +
+        '<button class="btn btn-secondary btn-small" onclick="confirmRestoreBackup(\'' + escapeJs(b.id) + '\',\'' + escapeJs(label) + '\')">Restore</button>' +
+      '</div>';
+    }).join('');
+  }).catch(function(err) {
+    el.innerHTML = '<div class="cat-desc">Could not load backups: ' + escapeHtml(String(err)) + '</div>';
+  });
+}
+
+async function confirmRestoreBackup(id, label) {
+  var ok = await customConfirm('Restore the backup from ' + label + '? This will replace the current live game data for everyone with this saved snapshot.', { title: 'Restore Backup', okText: 'Restore' });
+  if (!ok) return;
+  restoreBackup(id).then(function() {
+    showToast('✓ Restored backup from ' + label);
+    renderAll();
+  }).catch(function(err) {
+    showToast('⚠ Restore failed');
+    console.error('Restore failed', err);
+  });
+}
+
 function setTab(name) {
   ['overall','categories','tasks','timer','rules','admin'].forEach(function(t) {
     document.getElementById('tab-' + t).classList.toggle('hidden', t !== name);
@@ -4166,6 +4216,8 @@ var applyingRemote = false;   // true while we're applying a remote snapshot (su
 var saveTimer = null;
 var lastSavedJson = null;
 var firebaseConnected = false;
+var hasLoadedFromFirestore = false;  // CRITICAL: block all saves until we've loaded existing data once
+var fbDataExists = false;            // whether the game doc already exists in Firestore
 
 // The slice of state that is SHARED across all devices (everything except
 // per-device things: currentUser, isAdmin, activeTimer).
@@ -4192,7 +4244,24 @@ function applySharedState(data) {
   if (data.config) state.config = data.config;
   if (data.users) state.users = data.users;
   if (data.sessions) state.sessions = data.sessions;
-  if (data.taskLibrary) state.taskLibrary = data.taskLibrary;
+  // Task library protection: never let an incoming update wipe or shrink a
+  // populated library unless it's flagged as an explicit admin reset. This
+  // guards against a buggy or stale client pushing an empty/short library.
+  if (data.taskLibrary) {
+    var incoming = data.taskLibrary;
+    var current = state.taskLibrary || [];
+    var isExplicitReset = data._libraryResetFlag === true;
+    if (incoming.length >= current.length || isExplicitReset || current.length === 0) {
+      state.taskLibrary = incoming;
+    } else {
+      // Incoming library is smaller than what we hold and not an explicit reset:
+      // reject it and re-assert our (larger) library so it propagates back out.
+      console.warn('Rejected a task-library update that would shrink it from '
+        + current.length + ' to ' + incoming.length + ' tasks.');
+      // keep state.taskLibrary as-is; schedule a corrective save
+      setTimeout(function() { if (hasLoadedFromFirestore) saveState(); }, 100);
+    }
+  }
   if (data.taskInstances) state.taskInstances = data.taskInstances;
   if (data.failedClaims) state.failedClaims = data.failedClaims;
   if (data.dailyAwards) state.dailyAwards = data.dailyAwards;
@@ -4208,19 +4277,23 @@ function applySharedState(data) {
 function saveState() {
   if (applyingRemote) return;       // don't echo a remote change back
   if (!firebaseConnected || !fbDocRef) return;
+  if (!hasLoadedFromFirestore) return;  // CRITICAL: never save before we've loaded existing data
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(doSave, 400);
 }
 
 function doSave() {
   if (!firebaseConnected || !fbDocRef) return;
+  if (!hasLoadedFromFirestore) return;  // CRITICAL: never save before we've loaded existing data
   var shared = getSharedState();
   var json = JSON.stringify(shared);
   if (json === lastSavedJson) return;  // nothing changed
   lastSavedJson = json;
   // Firestore needs plain objects; JSON round-trip strips undefined & functions.
   var clean = JSON.parse(json);
-  window.FB.setDoc(fbDocRef, clean).catch(function(err) {
+  window.FB.setDoc(fbDocRef, clean).then(function() {
+    maybeBackup();
+  }).catch(function(err) {
     console.error('Firestore save failed', err);
     showToast('⚠ Save failed — check connection');
   });
@@ -4245,8 +4318,10 @@ function onFirebaseReadyImpl() {
       applySharedState(data);
       lastSavedJson = JSON.stringify(getSharedState());
       applyingRemote = false;
+      fbDataExists = true;
+      hasLoadedFromFirestore = true;   // we now hold the authoritative shared state
       // Re-render with whatever is currently on screen
-      if (state.currentUser) {
+      if (state.currentUser || state.isGuest) {
         _renderAll_inner();
       } else {
         // Not logged in yet — just refresh header/countdown bits
@@ -4254,12 +4329,109 @@ function onFirebaseReadyImpl() {
         updateCountdown();
       }
     } else {
-      // No game doc yet — create it from our starting (empty) state.
+      // No game doc exists yet. This device may create it — but ONLY if we're
+      // confident the doc is genuinely absent (first ever load of the game),
+      // not just slow to arrive. Mark as loaded so the (legitimately empty)
+      // starting state can be written as the initial doc.
+      fbDataExists = false;
+      hasLoadedFromFirestore = true;
       doSave();
     }
   }, function(err) {
     console.error('Firestore listener error', err);
     showToast('⚠ Live sync error');
+  });
+}
+
+// ============== AUTOMATIC CLOUD BACKUPS ==============
+// Rolling backups stored in Firestore (shared across all admin devices),
+// kept deliberately small: at most MAX_BACKUPS kept, throttled so we never
+// write more than one every BACKUP_MIN_INTERVAL_MS, and only when content
+// actually changed. Each backup is one small JSON doc.
+
+var BACKUP_MAX = 5;                          // keep only the last 5
+var BACKUP_MIN_INTERVAL_MS = 5 * 60 * 1000;  // at most one backup every 5 minutes
+var lastBackupTime = 0;
+var lastBackupJson = null;
+
+function maybeBackup() {
+  if (!hasLoadedFromFirestore || !firebaseConnected) return;
+  var now = Date.now();
+  if (now - lastBackupTime < BACKUP_MIN_INTERVAL_MS) return;  // throttle
+  var shared = getSharedState();
+  // Don't back up an empty game (nothing worth saving / avoids overwriting good backups with blanks)
+  if ((shared.taskLibrary || []).length === 0 && (shared.users || []).length === 0) return;
+  var json = JSON.stringify(shared);
+  if (json === lastBackupJson) return;  // nothing changed since last backup
+  lastBackupTime = now;
+  lastBackupJson = json;
+  writeBackup(json, now);
+}
+
+function writeBackup(json, ts) {
+  try {
+    var backupRef = window.FB.doc(window.FB.db, 'games', 'theplayrace_backup_' + ts);
+    window.FB.setDoc(backupRef, {
+      createdAt: ts,
+      isBackup: true,
+      data: json,                  // store as a JSON string — one field, compact
+      taskCount: (JSON.parse(json).taskLibrary || []).length,
+      userCount: (JSON.parse(json).users || []).length
+    }).then(function() {
+      pruneOldBackups();
+    }).catch(function(err) {
+      console.warn('Backup write failed (non-fatal)', err);
+    });
+  } catch (e) {
+    console.warn('Backup error (non-fatal)', e);
+  }
+}
+
+function pruneOldBackups() {
+  // List backup docs and delete all but the newest BACKUP_MAX.
+  listBackups().then(function(backups) {
+    if (backups.length <= BACKUP_MAX) return;
+    var toDelete = backups.slice(BACKUP_MAX);  // backups sorted newest-first
+    toDelete.forEach(function(b) {
+      var ref = window.FB.doc(window.FB.db, 'games', b.id);
+      window.FB.deleteDoc(ref).catch(function(){});
+    });
+  }).catch(function(){});
+}
+
+function listBackups() {
+  // Returns a promise of [{id, createdAt, taskCount, userCount}], newest first.
+  var col = window.FB.collection(window.FB.db, 'games');
+  return window.FB.getDocs(col).then(function(snapshot) {
+    var backups = [];
+    snapshot.forEach(function(docSnap) {
+      var d = docSnap.data();
+      if (d && d.isBackup) {
+        backups.push({ id: docSnap.id, createdAt: d.createdAt, taskCount: d.taskCount, userCount: d.userCount, data: d.data });
+      }
+    });
+    backups.sort(function(a, b) { return b.createdAt - a.createdAt; });
+    return backups;
+  });
+}
+
+function restoreBackup(backupId) {
+  var ref = window.FB.doc(window.FB.db, 'games', backupId);
+  return window.FB.getDoc(ref).then(function(snap) {
+    if (!snap.exists()) throw new Error('Backup not found');
+    var d = snap.data();
+    var restored = JSON.parse(d.data);
+    // Apply locally, then push to the live game doc.
+    applyingRemote = true;
+    // Force-accept the restored library even if smaller
+    restored._libraryResetFlag = true;
+    applySharedState(restored);
+    delete state._libraryResetFlag;
+    applyingRemote = false;
+    lastSavedJson = null;  // force the next save through
+    doSave();
+    renderAll();
+    return restored;
   });
 }
 
