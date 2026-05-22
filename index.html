@@ -1201,7 +1201,7 @@
   </div>
 
   <footer class="app-footer">
-    <span class="app-version">v34.0</span>
+    <span class="app-version">v36.0</span>
   </footer>
 </div>
 
@@ -1328,6 +1328,86 @@ defaultStart.setDate(defaultStart.getDate() + 1); // tomorrow midnight
 var defaultEnd = new Date(defaultStart);
 defaultEnd.setDate(defaultEnd.getDate() + 7); // default 1 week game
 
+// =============================================================================
+//  DEFAULT TASK LIBRARY — the baked-in core task set.
+//  ---------------------------------------------------------------------------
+//  These tasks are BAKED INTO THE CODE. They seed the game's task library the
+//  first time the game runs (when the library document in Firestore is empty).
+//  Because they live here in the file, they can NEVER be lost to a sync bug —
+//  even a total database wipe re-seeds from this list on next load.
+//
+//  Admins can still ADD/EDIT/DELETE tasks live in-app; those changes are saved
+//  to a separate protected Firestore document and survive new players joining.
+//
+//  TO SET YOUR OWN CORE TASKS: replace the entries below. Each task is:
+//    { id: 'unique-id', title: '...', description: '...', points: 10, tag: 'general' }
+//  tag is 'general' (everyone sees) or 'bdsm' (hidden unless unlocked).
+//  Keep ids unique.
+// =============================================================================
+var DEFAULT_TASK_LIBRARY = [
+  { id: 't1', title: "A Whaley Good Time", description: "It's simple. Play like you are trying to get to an edge or orgasm for ten minutes and narrate yourself in super slow motion. Some say this sounds a little like whale noise...Dory Time!", points: 15, tag: 'general' },
+  { id: 't2', title: "ABCDEFEDCBA", description: "Play with one hand or use a toy. With the other hand, type out the alphabet forwards and backwards ten times. Send this in the server and ask people to spot mistakes. You must edge for every mistake.", points: 15, tag: 'general' },
+  { id: 't3', title: "Silly Item", description: "Find your most ridiculous handheld item (figurine, kitchen utensil, good luck charm) and hold it while you play. Please show us the thing you choose.", points: 15, tag: 'general' },
+  { id: 't4', title: "One Handed Fantasy", description: "Play with one hand and with the other either write or type out a fantasy (at least a paragraph). Please share.", points: 15, tag: 'general' },
+  { id: 't5', title: "Game Time", description: "Play a game while you play, for at least ten minutes. Either with a synced lovense toy, or some good old fashioned one-handed Tetris /Minesweeper /any game you think you can play while a little distracted.", points: 15, tag: 'general' },
+  { id: 't6', title: "Still and Quiet", description: "Try to keep your body as still and as quiet as possible while going as hard and fast as you are comfortable. Ideally use a toy on high. Ten Minutes.", points: 15, tag: 'general' },
+  { id: 't7', title: "HA HA I ADDED IT", description: "Spank yourself X times on a body part of your choice. X is equal to the points you've earned on the latest “MASTURBATION MAY LEADERBOARD”. Be safe though. You have the hour this task gives you to complete. Don't push yourself into unsafe territory.", points: 20, tag: 'general' },
+  { id: 't8', title: "Cave person protocol", description: "For 50 minutes from when you claimed this task you must only talk in single syllable words in the server. This includes in voice notes/vc. Please only accept this task if you plan on being active in chat.", points: 15, tag: 'bdsm' },
+  { id: 't9', title: "Ask Nicely", description: "Ask the server very nicely if they will allow you to edge or orgasm or play. You must tell them its for a task and that you can't continue playing in this weeks game until you get a yes. If nobody agrees in the hour you don't get to complete this task and you must not play for another two hours (3 hours in total)", points: 20, tag: 'bdsm' },
+  { id: 't10', title: "Convince spanks", description: "You have 1 hour to convince somebody to do 30 butt spanks and share a photo. Make sure you get back here in time to complete the task.", points: 15, tag: 'bdsm' },
+  { id: 't11', title: "Convince CUM", description: "Convince somebody in the server to cum. In the hour you have to do this task you must have either confirmation they did cum or an explicit promise from them that they will within the next day.", points: 15, tag: 'general' },
+  { id: 't12', title: "Ask Permission", description: "For the next 50 minutes after you claim this task, you must ask permission from the server to do the following things: stand up, sit down, drink, eat, go to the toilet. You must receive confirmation before you do the thing. Be same and use common sense for emergencies, discomfort. But please only accept this task if yo uplan on being active in the server and don't have any commitments that require you to move around/do things freely.", points: 15, tag: 'bdsm' },
+  { id: 't13', title: "Edge 10 times", description: "Edge ten times. You have an hour. If you don't finish the full ten in the hour you can't claim the points.", points: 15, tag: 'general' },
+  { id: 't14', title: "Edge 15 times", description: "Edge fifteen times. You have an hour. If you don't finish the full fifteen in the hour you can't claim the points.", points: 15, tag: 'general' },
+  { id: 't15', title: "Look Dom free points", description: "Yes you really can claim this and get free points. Good job for being observant.", points: 15, tag: 'bdsm' },
+  { id: 't16', title: "Hey free points", description: "Hey look free points! Claim this and you get some free juicy points. It pays to be observant here.", points: 15, tag: 'general' },
+  { id: 't17', title: "Sensory Playtime", description: "Play whilst searching for 5 different textured objects. Feel each one as you play and enjoy (or not) how each one feels against your skin as you play.", points: 15, tag: 'general' },
+  { id: 't18', title: "Sensation Playtime", description: "You're hot then you're cold. Katy perry would be proud. Find a warm skin safe object - hot water bottle, or something similar. and also get a bowl of ice or an ice pack covered in a towel. with one hand you will be applying the temperature object and with the other you will be playing. Alternate the hot and cold sensations across your body as you play and occasioally apply them to those sensitive areas. Enjoy the senations and tell the group how it felt.", points: 15, tag: 'general' },
+  { id: 't19', title: "Poof X 3", description: "Poof 3 spicy photos. You pick which room.", points: 15, tag: 'general' },
+  { id: 't20', title: "Convince poof", description: "Convince one person to poof one spicy photo.", points: 15, tag: 'general' },
+  { id: 't21', title: "Skin convince", description: "Either call skin on one person or convince somebody to share a skin in the server.", points: 15, tag: 'general' },
+  { id: 't22', title: "Task me linda", description: "Head over to the BDSM Bot Lounge in the server, check the pins and complete 3 task me linda commands. choose wisely - if you con't complete them in the hour then you can't claim the points.", points: 15, tag: 'bdsm' },
+  { id: 't23', title: "Poetry time", description: "Read a dramatic poem while you play. Some suggestions are: The Raven by Edgar Allen Poe, Sonnet 27 by Shakespeare, Do not go gentle into that good night by Dylan Thomas, or My Last Duchess by Robert Browning. Please share audio", points: 15, tag: 'general' },
+  { id: 't24', title: "Be Productive!", description: "Stop playing and go and be productive for an hour! Please prove to the server that you are being sufficiently productive.", points: 15, tag: 'general' },
+  { id: 't25', title: "Chitter Chatter", description: "Touch or vibe yourself for 10 min with one hand while you type in the server. Try to do it while the chat is active. You must announce that you are starting this task in the chitter chatter thread.", points: 15, tag: 'general' },
+  { id: 't26', title: "Be Brave", description: "Play like you are actively trying to edge or orgasm in an on display VC. For at least ten minutes. No video required but voice is. You must allow at least one person to join.", points: 20, tag: 'general' },
+  { id: 't27', title: "Send a toy link!", description: "Grab a lovense toy and send at least a 10 minute long link in the server for somebody else to control. Enjoy that playtime.", points: 15, tag: 'general' },
+  { id: 't28', title: "Torture Chamber", description: "Head over to Torture chamber in the server, check the pins and complete 3 different bot tasks. Choose wisely - if you don't complete them within the hour you can't claim the points.", points: 15, tag: 'bdsm' },
+  { id: 't29', title: "Wall Time", description: "Strip naked. Find a wall. Put your nose to the wall whilst playing (with toy or hands). you can pick a comfortable position but your nose must be touching the wall at all times (adjust for comfort as needed)", points: 15, tag: 'bdsm' },
+  { id: 't30', title: "Listen to you", description: "Play for 5 minutes trying very hard to edge or orgasm. Then play for 5 minutes whilst recording your noises. For the next 5 minutes play whilst listening to that recording.", points: 15, tag: 'general' },
+  { id: 't31', title: "Ice Ice Baby", description: "Grab an ice cube and wrap it in a cloth/paper towel, leaving just one side exposed. Then sit/lay down and begin to play with yourself in whatever manner you like, but use one hand to rub the ice over your body, especially your nipples. I hear taking the ice down to where you're playing is also fun. Play until the cube has melted.", points: 15, tag: 'bdsm' },
+  { id: 't32', title: "Wet Wet Wet", description: "Gag yourself with something that will make you drool. A normal gag, a peg on your tongue, or just hold your mouth open. Now play for 10 minutes actively trying to get to edge or orgasm whilst angling your head down so your drool falls onto your body.", points: 15, tag: 'bdsm' },
+  { id: 't33', title: "Cold Thighs", description: "You need a toy and a glass/plastic cup/bottle of cold water. Set your toy to a high pattern and hold the water between your thighs for ten minutes. Maybe do it in a bathtub or something. Tell us if you got wet?", points: 15, tag: 'general' },
+  { id: 't34', title: "Finger the Alphabet", description: "Play with your hands. Get nice and lubed up. Now instead or rubbing or stroking or circles, you will trace out the alphabet with your fingers (penis havers may need to get creative...). Do this until you edge/cum feel satisfied or in the case of dicksatisfaction, 10 minutes minimum.", points: 15, tag: 'general' },
+  { id: 't35', title: "Desperate alphabet", description: "Play like you're actively trying to edge or cum for 5 minutes. Try and end the 5 minutes as close as you can. Then for the next 5 minutes, you must record yourself saying the alphabet forward and backwards whilst still playing. It would be just the best if you could share the audio.", points: 15, tag: 'general' },
+  { id: 't36', title: "Horny People", description: "Get 5 different peple in the server to say the word \"horny\". You must not explicitly say you are trying to do this task or ask them directly to say the word. If you don't do this in the hour don't complete the task - you don't get the points.", points: 15, tag: 'general' },
+  { id: 't37', title: "Protocol", description: "Head to the BDSM Bot Lounge in the server and check the pins. Pick one of the commands labelled as short or shorter protocols. You can claim the points for this task as long as you commit to completing the protocol you roll (just inc ase it goes over your hour time limit).", points: 15, tag: 'bdsm' },
+  { id: 't38', title: "High Vibes", description: "Use a toy on high on yourself for 10 minutes. You must not go over the edge during this ten minutes but you can as soon as the time ends if you wish to. The vibes must feel almost uncontrolably high.", points: 15, tag: 'general' },
+  { id: 't39', title: "Wikipedia", description: "Read aloud a random wikipedia article while you play. Re-rolls allowed for unacceptable content. Sharing your recording would be lovely please. Random wiki link: https://wikipedia.org/wiki/Special:Random", points: 15, tag: 'general' },
+  { id: 't40', title: "For the audiophiles", description: "Play with yourself for ten minutes like you're trying to reach orgasm (you can ease off if you get close and don't want to cum). Every two minutes send the group a voice note that lasts around 30 seconds updating us on your \"progress\"", points: 15, tag: 'general' },
+  { id: 't41', title: "Daily Edge", description: "Head over to The Denial Den in the server, check the pins and complete The Daily Edge", points: 15, tag: 'bdsm' },
+  { id: 't42', title: "Handcuffs", description: "Tie or cuff your hands together. Play like this for ten minutes.", points: 15, tag: 'bdsm' },
+  { id: 't43', title: "It's so fluffy!", description: "Find something soft and fluffy and continuously pet it while playing for 10 minutes. This could be a fluffy blanket, stuffed toy, cushion etc", points: 15, tag: 'general' },
+  { id: 't44', title: "Self Portrait", description: "Play with your dominant hand. You can have a toy in this hand to play with or use your hand. With the other hand, draw a self portrait of yourself. The portrait should be of you in that very moment all hot and sexy and horny. Please oh please share this with the group.", points: 15, tag: 'general' },
+  { id: 't45', title: "Slow Burn", description: "For ten minutes, you must play but it must be as slow as possible.", points: 15, tag: 'general' },
+  { id: 't46', title: "Lovense Game time", description: "Play a game in the lovense app with a toy connected (and use the toy to play with yourself...). tell us what game you played and your high score.", points: 15, tag: 'general' },
+  { id: 't47', title: "SOCKS", description: "Put your hand in a sock and play through the sock. Ten minutes.", points: 15, tag: 'general' },
+  { id: 't48', title: "HANDS", description: "Share a sexy hand photo. Thats all *insert ice cream here*", points: 5, tag: 'general' },
+  { id: 't49', title: "FEET", description: "Share a sexy feet photo. That's all.", points: 5, tag: 'general' },
+  { id: 't50', title: "Convenient little hole", description: "Make a hole in a piece of paper. About fingers width. You must touch yourself through this convenient little paper hole only. Ten minutes. Oh and show us your hole.", points: 15, tag: 'general' },
+  { id: 't51', title: "Tongue Twister", description: "Strokes or circles or thrusts for 5 minutes then spend 5 minutes doing another action at the same speed as you are repeating the following tongue twister aloud. \"One sock cutter, he cuts socks. Two sock cutters, they cut socks\". Please share audio proof.", points: 15, tag: 'general' },
+  { id: 't52', title: "Exhibitionist", description: "Go outside. Play outside for ten minutes. proof please.", points: 15, tag: 'bdsm' },
+  { id: 't53', title: "D100 - Edges", description: "Roll a d100. You get once chance. Do that many edges. If you don't complete them in time you can't claim the points for the task.", points: 15, tag: 'bdsm' },
+  { id: 't54', title: "D12 - Orgasms", description: "Roll a D12. No re-rolls. You must cum this many times. Remember you only have an hour to complete the task and you can't claim the points if you haven't completed them all.", points: 15, tag: 'general' },
+  { id: 't55', title: "Charge your toys", description: "Just go ahead and make sure yo uhave all of your toys charged.", points: 5, tag: 'general' },
+  { id: 't56', title: "Birthday spankings", description: "Add together your birthday date and month and give yourself that many spanks per thigh while you play. Eg 8th of May is 8+5=13", points: 10, tag: 'bdsm' },
+  { id: 't57', title: "Multiple Birthday Spankings", description: "Multiply your birthday date and do that many spanks! Example 8th of may is 8x5= 40!", points: 15, tag: 'bdsm' },
+  { id: 't58', title: "Rubber band", description: "Get a rubber band and actively play for 15 minutes. For every moan, gasp and whimper that escapes you you must snap 5 times.", points: 15, tag: 'bdsm' },
+  { id: 't59', title: "Forgotton Toy", description: "Pick your least used toy and play using that or at least 10 minutes. Tell us what toy it was.", points: 15, tag: 'general' },
+  { id: 't60', title: "Slow toy burn", description: "Spend 30 minutes on the lowest possible setting on one of your toys (add this time to teasy timer)", points: 15, tag: 'general' },
+  { id: 't61', title: "Public Pulse", description: "Use a remote-controlled toy in a quasi-public space (your back garden, balcony, etc.) for 10 minutes.", points: 15, tag: 'general' }
+];
+
 var state = {
   currentUser: null,
   isAdmin: false,
@@ -1352,16 +1432,7 @@ var state = {
   users: [],
   sessions: [],
   activeTimer: null,
-  taskLibrary: [
-    { id: 't1', title: 'The 5-minute edge', description: 'Edge yourself for 5 minutes straight without going over. Reset and try again if you tip too far.', points: 10, tag: 'general' },
-    { id: 't2', title: 'Toy roulette', description: 'Pick a toy you haven\'t used today and use it for at least 15 minutes.', points: 15, tag: 'general' },
-    { id: 't3', title: 'Slow burn', description: 'Spend 30 minutes at the lowest possible intensity setting on your toy.', points: 20, tag: 'general' },
-    { id: 't4', title: 'Three-edge tease', description: 'Bring yourself to the edge three separate times within a single session.', points: 15, tag: 'general' },
-    { id: 't5', title: 'Hold for ten', description: 'Stay right on the edge of orgasm for 10 seconds. Then back off.', points: 12, tag: 'general' },
-    { id: 't6', title: 'Public pulse', description: 'Use a remote-controlled toy in a quasi-public space (your back garden, balcony, etc.) for 5 minutes.', points: 25, tag: 'general' },
-    { id: 't7', title: 'Locked and longing', description: 'Spend 30 minutes denied while restrained (cuffs, rope, or improvised).', points: 25, tag: 'bdsm' },
-    { id: 't8', title: 'Counted strokes', description: 'Self-spank or impact 20 times before being allowed to touch yourself.', points: 20, tag: 'bdsm' }
-  ],
+  taskLibrary: [],
   taskInstances: [],
   failedClaims: [],
   dailyAwards: [],
@@ -2611,12 +2682,10 @@ function addTaskTemplate() {
   var points = parseInt(document.getElementById('new-task-points').value);
   var tag = document.getElementById('new-task-tag').value || 'general';
   if (!title || !desc || !points || points < 1) { showToast('Fill all fields'); return; }
-  state.taskLibrary.push({
-    id: uidTask(),
-    title: title,
-    description: desc,
-    points: points,
-    tag: tag
+  var newTask = { id: uidTask(), title: title, description: desc, points: points, tag: tag };
+  saveLibraryMerge(function(tasks) {
+    tasks.push(newTask);
+    return tasks;
   });
   document.getElementById('new-task-title').value = '';
   document.getElementById('new-task-desc').value = '';
@@ -2629,7 +2698,9 @@ function addTaskTemplate() {
 async function deleteTaskTemplate(id) {
   var ok = await customConfirm('Delete this task template? Existing spawned instances are not affected.', { title: 'Delete Task', okText: 'Delete' });
   if (!ok) return;
-  state.taskLibrary = state.taskLibrary.filter(function(t) { return t.id !== id; });
+  saveLibraryMerge(function(tasks) {
+    return tasks.filter(function(t) { return t.id !== id; });
+  });
   showToast('Task template deleted');
   renderAdmin();
 }
@@ -3246,6 +3317,12 @@ function doLogin() {
   var username = document.getElementById('login-username').value.trim();
   var password = document.getElementById('login-password').value;
   if (!username) { showToast('Please enter a username'); return; }
+
+  // Safety net: if the library somehow hasn't loaded yet (slow/failed listener),
+  // fall back to the baked-in default so there are always tasks to play.
+  if ((!state.taskLibrary || state.taskLibrary.length === 0) && typeof DEFAULT_TASK_LIBRARY !== 'undefined') {
+    state.taskLibrary = DEFAULT_TASK_LIBRARY.slice();
+  }
 
   state.isGuest = false;
   updateAuthBarForGuest(false);
@@ -3962,7 +4039,14 @@ async function importBackup(event) {
       state.users = data.users;
       state.sessions = data.sessions;
       if (data.config) state.config = data.config;
-      if (data.taskLibrary) state.taskLibrary = data.taskLibrary;
+      if (data.taskLibrary && data.taskLibrary.length) {
+        // Write the imported library to the separate protected library doc.
+        var importedLib = data.taskLibrary;
+        state.taskLibrary = importedLib;
+        if (typeof libDocRef !== 'undefined' && libDocRef && window.FB) {
+          window.FB.setDoc(libDocRef, { tasks: importedLib, updatedAt: Date.now() }).catch(function(){});
+        }
+      }
       if (data.taskInstances) state.taskInstances = data.taskInstances;
       if (data.failedClaims) state.failedClaims = data.failedClaims;
       if (data.dailyAwards) state.dailyAwards = data.dailyAwards;
@@ -4222,11 +4306,13 @@ var fbDataExists = false;            // whether the game doc already exists in F
 // The slice of state that is SHARED across all devices (everything except
 // per-device things: currentUser, isAdmin, activeTimer).
 function getSharedState() {
+  // NOTE: taskLibrary is intentionally NOT here — it syncs through its own
+  // separate, protected document so the busy game-state sync can never
+  // overwrite it. See the LIBRARY SYNC section below.
   return {
     config: state.config,
     users: state.users,
     sessions: state.sessions,
-    taskLibrary: state.taskLibrary,
     taskInstances: state.taskInstances,
     failedClaims: state.failedClaims,
     dailyAwards: state.dailyAwards,
@@ -4244,24 +4330,9 @@ function applySharedState(data) {
   if (data.config) state.config = data.config;
   if (data.users) state.users = data.users;
   if (data.sessions) state.sessions = data.sessions;
-  // Task library protection: never let an incoming update wipe or shrink a
-  // populated library unless it's flagged as an explicit admin reset. This
-  // guards against a buggy or stale client pushing an empty/short library.
-  if (data.taskLibrary) {
-    var incoming = data.taskLibrary;
-    var current = state.taskLibrary || [];
-    var isExplicitReset = data._libraryResetFlag === true;
-    if (incoming.length >= current.length || isExplicitReset || current.length === 0) {
-      state.taskLibrary = incoming;
-    } else {
-      // Incoming library is smaller than what we hold and not an explicit reset:
-      // reject it and re-assert our (larger) library so it propagates back out.
-      console.warn('Rejected a task-library update that would shrink it from '
-        + current.length + ' to ' + incoming.length + ' tasks.');
-      // keep state.taskLibrary as-is; schedule a corrective save
-      setTimeout(function() { if (hasLoadedFromFirestore) saveState(); }, 100);
-    }
-  }
+  // taskLibrary is handled separately (see LIBRARY SYNC) and deliberately
+  // ignored here even if an old client includes it, so the busy game-state
+  // sync can never overwrite the protected library.
   if (data.taskInstances) state.taskInstances = data.taskInstances;
   if (data.failedClaims) state.failedClaims = data.failedClaims;
   if (data.dailyAwards) state.dailyAwards = data.dailyAwards;
@@ -4341,6 +4412,79 @@ function onFirebaseReadyImpl() {
     console.error('Firestore listener error', err);
     showToast('⚠ Live sync error');
   });
+
+  // Also subscribe to the SEPARATE, protected task-library document.
+  subscribeLibrary();
+}
+
+// ============== LIBRARY SYNC (separate protected document) ==============
+// The task library lives in its own Firestore doc: games/theplayrace_library.
+// It is ONLY written by explicit admin task add/edit/delete actions, each of
+// which re-reads the latest library and merges before writing (multi-admin
+// safe). The busy game-state sync never touches it, so a player joining can
+// never overwrite it. If the doc is empty/absent on first run, it is seeded
+// from the baked-in DEFAULT_TASK_LIBRARY in the code.
+
+var libDocRef = null;
+var libraryLoaded = false;
+
+function subscribeLibrary() {
+  libDocRef = window.FB.doc(window.FB.db, 'games', 'theplayrace_library');
+  window.FB.onSnapshot(libDocRef, function(snap) {
+    if (snap.exists() && snap.data() && Array.isArray(snap.data().tasks) && snap.data().tasks.length > 0) {
+      // Authoritative library from Firestore.
+      state.taskLibrary = snap.data().tasks;
+      libraryLoaded = true;
+      if (state.currentUser || state.isGuest) {
+        renderTasks();
+        renderAdmin();
+      }
+    } else {
+      // No library yet (first ever run) — seed from the baked-in default.
+      libraryLoaded = true;
+      state.taskLibrary = DEFAULT_TASK_LIBRARY.slice();
+      seedLibrary();
+    }
+  }, function(err) {
+    console.error('Library listener error', err);
+    // Fall back to the baked-in default so the game still has tasks.
+    if (!state.taskLibrary || state.taskLibrary.length === 0) {
+      state.taskLibrary = DEFAULT_TASK_LIBRARY.slice();
+    }
+    libraryLoaded = true;
+  });
+}
+
+function seedLibrary() {
+  // Write the baked-in default as the initial library doc (first run only).
+  if (!libDocRef) return;
+  window.FB.setDoc(libDocRef, { tasks: DEFAULT_TASK_LIBRARY.slice(), updatedAt: Date.now() })
+    .catch(function(err) { console.warn('Library seed failed (non-fatal)', err); });
+}
+
+// Save the library by re-reading the latest from Firestore and MERGING our
+// intended change into it, so simultaneous edits from multiple admins don't
+// clobber each other. `mutator` receives the latest tasks array and returns
+// the new tasks array.
+function saveLibraryMerge(mutator) {
+  if (!libDocRef || !window.FB) {
+    // Offline fallback: just mutate local state.
+    state.taskLibrary = mutator(state.taskLibrary || []);
+    renderTasks(); renderAdmin();
+    return Promise.resolve();
+  }
+  return window.FB.getDoc(libDocRef).then(function(snap) {
+    var latest = (snap.exists() && snap.data() && Array.isArray(snap.data().tasks))
+      ? snap.data().tasks : (state.taskLibrary || []);
+    var updated = mutator(latest.slice());
+    state.taskLibrary = updated;
+    return window.FB.setDoc(libDocRef, { tasks: updated, updatedAt: Date.now() }).then(function() {
+      renderTasks(); renderAdmin();
+    });
+  }).catch(function(err) {
+    console.error('Library save failed', err);
+    showToast('⚠ Task save failed — try again');
+  });
 }
 
 // ============== AUTOMATIC CLOUD BACKUPS ==============
@@ -4358,10 +4502,13 @@ function maybeBackup() {
   if (!hasLoadedFromFirestore || !firebaseConnected) return;
   var now = Date.now();
   if (now - lastBackupTime < BACKUP_MIN_INTERVAL_MS) return;  // throttle
-  var shared = getSharedState();
+  // A full backup includes the separate task library too, so a restore can
+  // bring tasks back as well as game state.
+  var snapshot = getSharedState();
+  snapshot.taskLibrary = state.taskLibrary || [];
   // Don't back up an empty game (nothing worth saving / avoids overwriting good backups with blanks)
-  if ((shared.taskLibrary || []).length === 0 && (shared.users || []).length === 0) return;
-  var json = JSON.stringify(shared);
+  if ((snapshot.taskLibrary || []).length === 0 && (snapshot.users || []).length === 0) return;
+  var json = JSON.stringify(snapshot);
   if (json === lastBackupJson) return;  // nothing changed since last backup
   lastBackupTime = now;
   lastBackupJson = json;
@@ -4421,15 +4568,19 @@ function restoreBackup(backupId) {
     if (!snap.exists()) throw new Error('Backup not found');
     var d = snap.data();
     var restored = JSON.parse(d.data);
-    // Apply locally, then push to the live game doc.
+    // Apply game state locally, then push to the live game doc.
     applyingRemote = true;
-    // Force-accept the restored library even if smaller
-    restored._libraryResetFlag = true;
     applySharedState(restored);
-    delete state._libraryResetFlag;
     applyingRemote = false;
     lastSavedJson = null;  // force the next save through
     doSave();
+    // Restore the task library to its separate protected doc too.
+    if (restored.taskLibrary && restored.taskLibrary.length) {
+      state.taskLibrary = restored.taskLibrary;
+      if (libDocRef && window.FB) {
+        window.FB.setDoc(libDocRef, { tasks: restored.taskLibrary, updatedAt: Date.now() }).catch(function(){});
+      }
+    }
     renderAll();
     return restored;
   });
