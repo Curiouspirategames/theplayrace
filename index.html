@@ -1008,7 +1008,7 @@
         <div class="input-row">
           <div>
             <label class="field-label">Tasks per 24h</label>
-            <input type="number" class="input" id="cfg-tasks-per-day" min="0" max="24" placeholder="4">
+            <input type="number" class="input" id="cfg-tasks-per-day" min="0" max="100" placeholder="4">
           </div>
           <div>
             <label class="field-label">Claim window (mins)</label>
@@ -1201,7 +1201,7 @@
   </div>
 
   <footer class="app-footer">
-    <span class="app-version">v38.0</span>
+    <span class="app-version">v39.0</span>
   </footer>
 </div>
 
@@ -1670,16 +1670,19 @@ function customConfirm(message, options) {
 }
 
 function getUserStats(username) {
-  var s = state.sessions.filter(function(x) { return x.user === username; });
+  var s = state.sessions.filter(function(x) { return x && x.user === username; });
+  // Coerce duration to a safe non-negative number so one bad/missing value
+  // can never turn the whole leaderboard into NaN.
+  function dur(x) { var n = Number(x.durationMins); return (isFinite(n) && n > 0) ? n : 0; }
   return {
-    totalMins: s.filter(function(x) { return x.mode !== 'tease'; }).reduce(function(sum, x) { return sum + x.durationMins; }, 0),
-    denialMins: s.filter(function(x) { return x.mode === 'denial'; }).reduce(function(sum, x) { return sum + x.durationMins; }, 0),
-    orgasmMins: s.filter(function(x) { return x.mode === 'orgasm'; }).reduce(function(sum, x) { return sum + x.durationMins; }, 0),
-    teaseMins: s.filter(function(x) { return x.mode === 'tease'; }).reduce(function(sum, x) { return sum + x.durationMins; }, 0),
+    totalMins: s.filter(function(x) { return x.mode !== 'tease'; }).reduce(function(sum, x) { return sum + dur(x); }, 0),
+    denialMins: s.filter(function(x) { return x.mode === 'denial'; }).reduce(function(sum, x) { return sum + dur(x); }, 0),
+    orgasmMins: s.filter(function(x) { return x.mode === 'orgasm'; }).reduce(function(sum, x) { return sum + dur(x); }, 0),
+    teaseMins: s.filter(function(x) { return x.mode === 'tease'; }).reduce(function(sum, x) { return sum + dur(x); }, 0),
     // Toy time excludes tease sessions (per spec)
-    toyMins: s.filter(function(x) { return x.toy && x.mode !== 'tease'; }).reduce(function(sum, x) { return sum + x.durationMins; }, 0),
-    edges: s.reduce(function(sum, x) { return sum + (x.edges || 0); }, 0),
-    orgasms: s.reduce(function(sum, x) { return sum + (x.orgasms || 0); }, 0),
+    toyMins: s.filter(function(x) { return x.toy && x.mode !== 'tease'; }).reduce(function(sum, x) { return sum + dur(x); }, 0),
+    edges: s.reduce(function(sum, x) { var n = Number(x.edges); return sum + (isFinite(n) && n > 0 ? n : 0); }, 0),
+    orgasms: s.reduce(function(sum, x) { var n = Number(x.orgasms); return sum + (isFinite(n) && n > 0 ? n : 0); }, 0),
     sessions: s.filter(function(x) { return x.mode !== 'tease'; }).length,
     teaseSessions: s.filter(function(x) { return x.mode === 'tease'; }).length
   };
@@ -1712,18 +1715,19 @@ function renderStats() {
 }
 
 function getUserPoints(username) {
+  function pnum(v) { var n = Number(v); return isFinite(n) ? n : 0; }
   var pts = 0;
   state.taskInstances.forEach(function(t) {
-    if (t.status === 'completed' && t.claimedBy === username) pts += t.points;
+    if (t.status === 'completed' && t.claimedBy === username) pts += pnum(t.points);
   });
   state.dailyAwards.forEach(function(a) {
-    if (a.user === username) pts += a.points;
+    if (a.user === username) pts += pnum(a.points);
   });
   state.endGameBonuses.forEach(function(b) {
-    if (b.user === username) pts += b.points;
+    if (b.user === username) pts += pnum(b.points);
   });
   state.manualAdjustments.forEach(function(m) {
-    if (m.user === username) pts += m.points;
+    if (m.user === username) pts += pnum(m.points);
   });
   return pts;
 }
@@ -2456,6 +2460,15 @@ async function completeTask(id) {
   if (!task || task.status !== 'claimed' || task.claimedBy !== state.currentUser) return;
   var ok = await customConfirm('Mark this task as complete? You\'ll get ' + task.points + ' points. (Posting proof in the server is encouraged where possible)', { title: 'Complete Task', okText: 'Mark Complete', danger: false });
   if (!ok) return;
+  // Re-validate AFTER the dialog: the claim could have expired (or been
+  // reassigned) while the confirm was open. Don't complete a task we no longer
+  // validly hold.
+  task = state.taskInstances.find(function(t) { return t.id === id; });
+  if (!task || task.status !== 'claimed' || task.claimedBy !== state.currentUser) {
+    showToast('That task is no longer yours to complete');
+    renderAll();
+    return;
+  }
   task.status = 'completed';
   task.completedAt = Date.now();
   logTaskActivity('<b>' + escapeHtml(state.currentUser) + '</b> completed <b>' + escapeHtml(task.title) + '</b> · +' + task.points + ' pts', 'completed');
@@ -2468,6 +2481,12 @@ async function giveUpTask(id) {
   if (!task || task.status !== 'claimed' || task.claimedBy !== state.currentUser) return;
   var ok = await customConfirm('Give up this task? It will return to the pool but you can\'t reclaim this instance.', { title: 'Give Up', okText: 'Give Up' });
   if (!ok) return;
+  // Re-validate after the dialog (claim may have expired during the await).
+  task = state.taskInstances.find(function(t) { return t.id === id; });
+  if (!task || task.status !== 'claimed' || task.claimedBy !== state.currentUser) {
+    renderAll();
+    return;
+  }
   state.failedClaims.push({ user: state.currentUser, taskInstanceId: task.id });
   logTaskActivity('<b>' + escapeHtml(state.currentUser) + '</b> gave up on <b>' + escapeHtml(task.title) + '</b>', 'failed');
   task.status = 'available';
@@ -3917,6 +3936,7 @@ function saveConfig() {
 
   var start = new Date(startStr).getTime();
   var end = new Date(endStr).getTime();
+  if (!isFinite(start) || !isFinite(end)) { showToast('Invalid date — please re-enter'); return; }
   if (end <= start) { showToast('End must be after start'); return; }
 
   // Merge into existing config (don't wipe out tasks/awards/etc.)
@@ -3954,9 +3974,19 @@ async function deleteUser(name) {
   state.users = state.users.filter(function(x) { return x.name !== name; });
   // Remove their sessions
   state.sessions = state.sessions.filter(function(s) { return s.user !== name; });
-  // Release/remove task instances they claimed or completed
+  // Handle task instances they were involved with:
+  //  - completed by them: remove the instance (their completion is being deleted)
+  //  - currently claimed by them: RELEASE it back to available so others can claim
+  //    (don't destroy the task slot just because this player is removed)
   state.taskInstances = state.taskInstances.filter(function(t) {
-    return t.claimedBy !== name;
+    return !(t.status === 'completed' && t.claimedBy === name);
+  });
+  state.taskInstances.forEach(function(t) {
+    if (t.status === 'claimed' && t.claimedBy === name) {
+      t.status = 'available';
+      t.claimedBy = null;
+      t.claimedAt = null;
+    }
   });
   // Remove their failed-claim records
   if (state.failedClaims) {
@@ -4098,6 +4128,15 @@ async function resetGame() {
   state.pendingTransfer = null;
   state.endGameBonuses = [];
   state.endGameAwardsApplied = false;
+  // Reset the schedule so the game is NOT immediately live after a reset.
+  // Park it in pre-game (start tomorrow) until an admin sets real dates.
+  var resetStart = new Date();
+  resetStart.setHours(0, 0, 0, 0);
+  resetStart.setDate(resetStart.getDate() + 1); // tomorrow midnight
+  var resetEnd = new Date(resetStart);
+  resetEnd.setDate(resetEnd.getDate() + 7);
+  state.config.startDate = resetStart.getTime();
+  state.config.endDate = resetEnd.getTime();
   // Reset admin password back to the default.
   state.config.adminPassword = 'spicy2026';
   // The person resetting stays admin for this session, but is no longer in the (now-empty) roster.
@@ -4105,7 +4144,7 @@ async function resetGame() {
   if (state.currentUser) {
     state.users.push({ name: state.currentUser, isAdmin: true, banned: false });
   }
-  showToast('🔄 Game fully reset · password back to default');
+  showToast('🔄 Game fully reset · dates cleared to pre-game · password back to default');
   renderAll();
 }
 
@@ -4345,10 +4384,48 @@ function getSharedState() {
   };
 }
 
+// Fill any missing/corrupted nested config fields from safe defaults, so a
+// partial or malformed config from Firestore can never crash the admin screen
+// or break game-state calculations.
+function sanitizeConfig(cfg) {
+  cfg = (cfg && typeof cfg === 'object') ? cfg : {};
+  var def = {
+    name: 'The Play Race', subtitle: 'Who will be the horniest?',
+    tasksPerDay: 4, claimWindowMins: 60, adminPassword: 'spicy2026'
+  };
+  if (typeof cfg.name !== 'string' || !cfg.name) cfg.name = def.name;
+  if (typeof cfg.subtitle !== 'string') cfg.subtitle = def.subtitle;
+  if (!isFinite(Number(cfg.startDate))) cfg.startDate = Date.now() + 86400000;
+  if (!isFinite(Number(cfg.endDate))) cfg.endDate = Date.now() + 8 * 86400000;
+  if (!isFinite(Number(cfg.tasksPerDay)) || cfg.tasksPerDay < 0) cfg.tasksPerDay = def.tasksPerDay;
+  if (!isFinite(Number(cfg.claimWindowMins)) || cfg.claimWindowMins < 1) cfg.claimWindowMins = def.claimWindowMins;
+  if (typeof cfg.adminPassword !== 'string' || !cfg.adminPassword) cfg.adminPassword = def.adminPassword;
+  if (!cfg.dailyAwards || typeof cfg.dailyAwards !== 'object') cfg.dailyAwards = { first: 50, second: 30, third: 15 };
+  else {
+    if (!isFinite(Number(cfg.dailyAwards.first))) cfg.dailyAwards.first = 50;
+    if (!isFinite(Number(cfg.dailyAwards.second))) cfg.dailyAwards.second = 30;
+    if (!isFinite(Number(cfg.dailyAwards.third))) cfg.dailyAwards.third = 15;
+  }
+  var ega = cfg.endGameAwards;
+  if (!ega || typeof ega !== 'object') ega = {};
+  function tier(t, a, b, c) {
+    if (!t || typeof t !== 'object') return { first: a, second: b, third: c };
+    if (!isFinite(Number(t.first))) t.first = a;
+    if (!isFinite(Number(t.second))) t.second = b;
+    if (!isFinite(Number(t.third))) t.third = c;
+    return t;
+  }
+  ega.overall = tier(ega.overall, 200, 120, 60);
+  ega.subboards = tier(ega.subboards, 75, 45, 20);
+  ega.tease = tier(ega.tease, 100, 60, 30);
+  cfg.endGameAwards = ega;
+  return cfg;
+}
+
 function applySharedState(data) {
   if (!data) return;
   var hadLocalAdditions = false;
-  if (data.config) state.config = data.config;
+  if (data.config) state.config = sanitizeConfig(data.config);
   if (data.users) state.users = mergeUsers(state.users, data.users);
   // ADDITIVE data (sessions, awards, adjustments, activity, bonuses): MERGE by
   // union of ids rather than replace. This is critical for simultaneous writes:
