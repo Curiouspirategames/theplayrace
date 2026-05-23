@@ -3444,6 +3444,46 @@ function doLogin() {
   renderAll();
 }
 
+// After a sync, verify the logged-in player still exists and isn't tombstoned.
+// If an admin deleted them (or a reset wiped them), force them out cleanly so
+// they aren't left logging times that silently vanish on the next sync.
+// Returns true if the user is still valid (or it's a guest/no-one), false if
+// they were logged out.
+function checkCurrentUserStillValid() {
+  if (!state.currentUser || state.isGuest) return true;
+  var nameLc = state.currentUser.toLowerCase();
+  var tombstoned = state.deletedUsers && state.deletedUsers[nameLc];
+  var stillInRoster = state.users.some(function(u) { return u && u.name && u.name.toLowerCase() === nameLc; });
+  // Only force logout if they were explicitly TOMBSTONED (deleted by an admin)
+  // or wiped by a reset. We must NOT log out a brand-new player whose local
+  // self-registration simply hasn't round-tripped through sync yet — in that
+  // case we just re-assert them locally and let the merge re-sync them.
+  if (tombstoned) {
+    var removedName = state.currentUser;
+    state.currentUser = null;
+    state.isAdmin = false;
+    state.activeTimer = null;       // discard any in-progress timer (it can't be logged)
+    try { persistTimer(); } catch (e) {}
+    var modal = document.getElementById('login-modal');
+    if (modal) modal.style.display = 'flex';
+    var authBar = document.getElementById('auth-bar');
+    if (authBar) authBar.style.display = 'none';
+    var statusBar = document.getElementById('timer-status-bar');
+    if (statusBar) statusBar.style.display = 'none';
+    var adminTab = document.querySelector('[data-tab="admin"]');
+    if (adminTab) adminTab.classList.add('hidden');
+    showToast('You have been removed from this game by an admin');
+    return false;
+  }
+  if (!stillInRoster) {
+    // Not tombstoned but missing from the roster — most likely a not-yet-synced
+    // new login (or a reset that kept us as current user). Re-assert locally so
+    // the player keeps working and the next save re-syncs them.
+    state.users.push({ name: state.currentUser, isAdmin: state.isAdmin, banned: false });
+  }
+  return true;
+}
+
 async function logout() {
   if (state.activeTimer) {
     var ok = await customConfirm('You have a timer running. It will keep running in the background. Switch user?', { title: 'Switch User', okText: 'Switch', danger: false });
@@ -4530,7 +4570,7 @@ function applySharedState(data) {
 // Remove any data belonging to a tombstoned user or created before the reset
 // epoch. Returns true if anything was removed (so we re-save the cleaned set).
 function purgeDeletedData() {
-  var before = JSON.stringify([state.users.length, state.sessions.length, state.dailyAwards.length, state.manualAdjustments.length, state.endGameBonuses.length, state.taskInstances.length]);
+  var before = JSON.stringify([state.users.length, state.sessions.length, state.dailyAwards.length, state.manualAdjustments.length, state.endGameBonuses.length, state.taskInstances.length, (state.taskActivity||[]).length, (state.failedClaims||[]).length]);
   var epoch = Number(state.resetEpoch) || 0;
   var tomb = state.deletedUsers || {};
   function isDeleted(name) {
@@ -4566,7 +4606,20 @@ function purgeDeletedData() {
       t.status = 'available'; t.claimedBy = null; t.claimedAt = null;
     }
   });
-  var after = JSON.stringify([state.users.length, state.sessions.length, state.dailyAwards.length, state.manualAdjustments.length, state.endGameBonuses.length, state.taskInstances.length]);
+  // Task activity log: drop entries from before the reset epoch.
+  if (Array.isArray(state.taskActivity)) {
+    state.taskActivity = state.taskActivity.filter(function(a) {
+      return a && (Number(a.timestamp) || 0) >= epoch;
+    });
+  }
+  // Failed-claim records: drop those for deleted users (we can't epoch-filter
+  // these as they have no timestamp, but tombstone-filtering is the important part).
+  if (Array.isArray(state.failedClaims)) {
+    state.failedClaims = state.failedClaims.filter(function(f) {
+      return f && !isDeleted(f.user);
+    });
+  }
+  var after = JSON.stringify([state.users.length, state.sessions.length, state.dailyAwards.length, state.manualAdjustments.length, state.endGameBonuses.length, state.taskInstances.length, state.taskActivity.length, state.failedClaims.length]);
   return before !== after;
 }
 
@@ -4714,11 +4767,16 @@ function subscribeGameDoc() {
       applyingRemote = false;
       fbDataExists = true;
       hasLoadedFromFirestore = true;   // we now hold the authoritative shared state
-      if (state.currentUser || state.isGuest) {
-        _renderAll_inner();
-      } else {
-        renderHeader();
-        updateCountdown();
+      // If this sync removed the logged-in user (deleted by an admin, or wiped
+      // by a reset), don't let them keep playing into a void — log them out
+      // with a clear message.
+      if (checkCurrentUserStillValid()) {
+        if (state.currentUser || state.isGuest) {
+          _renderAll_inner();
+        } else {
+          renderHeader();
+          updateCountdown();
+        }
       }
     } else {
       // No game doc exists yet (first ever run). Create it from our starting state.
@@ -4761,8 +4819,10 @@ function directLoadFallback() {
       fbDataExists = false;
     }
     hasLoadedFromFirestore = true;
-    if (state.currentUser || state.isGuest) _renderAll_inner();
-    else { renderHeader(); updateCountdown(); }
+    if (checkCurrentUserStillValid()) {
+      if (state.currentUser || state.isGuest) _renderAll_inner();
+      else { renderHeader(); updateCountdown(); }
+    }
   }).catch(function(err) {
     console.error('Direct load failed', err);
     // Last resort: unblock saving anyway after we've clearly tried, so the user
