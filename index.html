@@ -1201,7 +1201,7 @@
   </div>
 
   <footer class="app-footer">
-    <span class="app-version">v39.0</span>
+    <span class="app-version">v40.0</span>
   </footer>
 </div>
 
@@ -1443,7 +1443,15 @@ var state = {
   transferSnapshots: [],
   // Pending transfer (lock state). When non-null, a transfer is in progress.
   // { startedAt, startedBy, frozenAmounts: { user: untransferredAtLockTime } }
-  pendingTransfer: null
+  pendingTransfer: null,
+  // Tombstones for deleted players: { 'lowercasename': deletionTimestamp }.
+  // A name in here is suppressed on merge unless it re-registers AFTER that time.
+  // This is what stops a deleted player being resurrected by another device's
+  // stale copy during sync.
+  deletedUsers: {},
+  // Full-reset epoch: any data created before this timestamp is discarded on
+  // merge, so a reset can't be undone by a stale device pushing old data back.
+  resetEpoch: 0
 };
 
 function seedDemoSessions() {
@@ -3359,6 +3367,12 @@ function doLogin() {
   state.isGuest = false;
   updateAuthBarForGuest(false);
 
+  // If this name was previously deleted, a deliberate fresh login revives it:
+  // clear its tombstone so the player genuinely comes back (and isn't purged).
+  if (state.deletedUsers && state.deletedUsers[username.toLowerCase()]) {
+    delete state.deletedUsers[username.toLowerCase()];
+  }
+
   var newUserAdded = false;
   var user = state.users.find(function(u) { return u.name.toLowerCase() === username.toLowerCase(); });
   if (!user) {
@@ -4003,6 +4017,12 @@ async function deleteUser(name) {
     state.taskActivity = state.taskActivity.filter(function(a) { return a.user !== name; });
   }
 
+  // CRITICAL: record a tombstone so other devices (and this player's own open
+  // session) can't resurrect them on the next sync. Without this, the merge
+  // logic treats the now-missing player as an un-synced addition and re-adds them.
+  state.deletedUsers = state.deletedUsers || {};
+  state.deletedUsers[name.toLowerCase()] = Date.now();
+
   showToast(name + ' deleted');
   renderAll();
 }
@@ -4128,6 +4148,14 @@ async function resetGame() {
   state.pendingTransfer = null;
   state.endGameBonuses = [];
   state.endGameAwardsApplied = false;
+  // CRITICAL: bump the reset epoch. Any data created before now (from the
+  // previous game, still sitting on a stale device) is void and will be purged
+  // on merge instead of being pushed back in. This is what makes a reset
+  // "stick" even while other devices still hold the old game.
+  state.resetEpoch = Date.now();
+  // Clear individual tombstones — they're irrelevant after a full wipe, and the
+  // epoch now covers everything.
+  state.deletedUsers = {};
   // Reset the schedule so the game is NOT immediately live after a reset.
   // Park it in pre-game (start tomorrow) until an admin sets real dates.
   var resetStart = new Date();
@@ -4380,7 +4408,9 @@ function getSharedState() {
     transferSnapshots: state.transferSnapshots,
     pendingTransfer: state.pendingTransfer,
     endGameAwardsApplied: state.endGameAwardsApplied,
-    endGameBonuses: state.endGameBonuses
+    endGameBonuses: state.endGameBonuses,
+    deletedUsers: state.deletedUsers,
+    resetEpoch: state.resetEpoch
   };
 }
 
@@ -4425,53 +4455,119 @@ function sanitizeConfig(cfg) {
 function applySharedState(data) {
   if (!data) return;
   var hadLocalAdditions = false;
-  if (data.config) state.config = sanitizeConfig(data.config);
-  if (data.users) state.users = mergeUsers(state.users, data.users);
+
+  // ---- Merge deletion metadata FIRST, so we can filter everything else ----
+  // Reset epoch: take the LATEST (a newer reset wins). Anything created before
+  // the epoch is void.
+  if (isFinite(Number(data.resetEpoch))) {
+    state.resetEpoch = Math.max(Number(state.resetEpoch) || 0, Number(data.resetEpoch));
+  }
+  // Tombstones: union, keeping the LATEST deletion time per name.
+  if (data.deletedUsers && typeof data.deletedUsers === 'object') {
+    state.deletedUsers = state.deletedUsers || {};
+    Object.keys(data.deletedUsers).forEach(function(name) {
+      var incomingT = Number(data.deletedUsers[name]) || 0;
+      var localT = Number(state.deletedUsers[name]) || 0;
+      if (incomingT > localT) state.deletedUsers[name] = incomingT;
+    });
+  }
+
+  // Detect a STALE snapshot: one whose resetEpoch is older than ours means it
+  // comes from a device that hasn't seen our reset. Its data (including config)
+  // is from the previous game and must NOT be merged in.
+  var incomingEpoch = isFinite(Number(data.resetEpoch)) ? Number(data.resetEpoch) : 0;
+  var ourEpoch = Number(state.resetEpoch) || 0;
+  var incomingIsStale = incomingEpoch < ourEpoch;
+
+  if (data.config && !incomingIsStale) state.config = sanitizeConfig(data.config);
+
+  if (data.users && !incomingIsStale) state.users = mergeUsers(state.users, data.users);
   // ADDITIVE data (sessions, awards, adjustments, activity, bonuses): MERGE by
-  // union of ids rather than replace. This is critical for simultaneous writes:
-  // if two devices submit at once and one's write overwrites the other in the
-  // cloud, the "losing" device must keep its own just-added entry locally so
-  // the next save restores it — otherwise that session is lost forever.
-  if (data.sessions) {
+  // union of ids rather than replace, so a write race never loses an entry.
+  // (Skipped entirely if the snapshot is stale — it's from a pre-reset game.)
+  if (data.sessions && !incomingIsStale) {
     var mergedSessions = mergeById(state.sessions, data.sessions, 'id');
     if (mergedSessions.localExtras) hadLocalAdditions = true;
     state.sessions = mergedSessions.list;
   }
   // taskLibrary handled separately (LIBRARY SYNC); ignored here.
-  // taskInstances: these are claim-state objects, not purely additive — the
-  // incoming version is authoritative for claim status, but we still keep any
-  // instance the incoming set is missing (e.g. a just-spawned one), keyed by id.
-  if (data.taskInstances) {
+  if (data.taskInstances && !incomingIsStale) {
     var mergedInst = mergeById(state.taskInstances, data.taskInstances, 'id', true /* incoming wins on conflict */);
     if (mergedInst.localExtras) hadLocalAdditions = true;
     state.taskInstances = mergedInst.list;
   }
-  if (data.failedClaims) state.failedClaims = data.failedClaims;
-  if (data.dailyAwards) {
+  if (data.failedClaims && !incomingIsStale) state.failedClaims = data.failedClaims;
+  if (data.dailyAwards && !incomingIsStale) {
     var mergedAwards = mergeById(state.dailyAwards, data.dailyAwards, 'id');
     if (mergedAwards.localExtras) hadLocalAdditions = true;
     state.dailyAwards = mergedAwards.list;
   }
-  if (data.taskActivity) state.taskActivity = mergeActivity(state.taskActivity, data.taskActivity);
-  if (data.manualAdjustments) {
+  if (data.taskActivity && !incomingIsStale) state.taskActivity = mergeActivity(state.taskActivity, data.taskActivity);
+  if (data.manualAdjustments && !incomingIsStale) {
     var mergedAdj = mergeById(state.manualAdjustments, data.manualAdjustments, 'id');
     if (mergedAdj.localExtras) hadLocalAdditions = true;
     state.manualAdjustments = mergedAdj.list;
   }
-  if (data.transferSnapshots) state.transferSnapshots = data.transferSnapshots;
-  if (typeof data.pendingTransfer !== 'undefined') state.pendingTransfer = data.pendingTransfer;
-  if (typeof data.endGameAwardsApplied !== 'undefined') state.endGameAwardsApplied = data.endGameAwardsApplied;
-  if (data.endGameBonuses) {
+  if (data.transferSnapshots && !incomingIsStale) state.transferSnapshots = data.transferSnapshots;
+  if (typeof data.pendingTransfer !== 'undefined' && !incomingIsStale) state.pendingTransfer = data.pendingTransfer;
+  if (typeof data.endGameAwardsApplied !== 'undefined' && !incomingIsStale) state.endGameAwardsApplied = data.endGameAwardsApplied;
+  if (data.endGameBonuses && !incomingIsStale) {
     var mergedBonus = mergeById(state.endGameBonuses, data.endGameBonuses, 'id');
     if (mergedBonus.localExtras) hadLocalAdditions = true;
     state.endGameBonuses = mergedBonus.list;
   }
-  // If our local state had entries the incoming snapshot lacked (an un-synced
-  // addition that lost a write race), schedule a save to push the union back
-  // out so every device — and the cloud — ends up with the complete set.
-  if (hadLocalAdditions) {
+
+  // ---- Apply deletions/epoch: strip out anything tombstoned or pre-epoch ----
+  var changed = purgeDeletedData();
+
+  // A stale incoming snapshot means the cloud still holds pre-reset data — force
+  // a corrective save to overwrite it with our current state so everyone converges.
+  if (incomingIsStale || hadLocalAdditions || changed) {
     setTimeout(function() { if (hasLoadedFromFirestore && !applyingRemote) { lastSavedJson = null; saveState(); } }, 200);
   }
+}
+
+// Remove any data belonging to a tombstoned user or created before the reset
+// epoch. Returns true if anything was removed (so we re-save the cleaned set).
+function purgeDeletedData() {
+  var before = JSON.stringify([state.users.length, state.sessions.length, state.dailyAwards.length, state.manualAdjustments.length, state.endGameBonuses.length, state.taskInstances.length]);
+  var epoch = Number(state.resetEpoch) || 0;
+  var tomb = state.deletedUsers || {};
+  function isDeleted(name) {
+    if (!name) return false;
+    var t = tomb[name.toLowerCase()];
+    return typeof t !== 'undefined' && t > 0;
+  }
+  // A user is suppressed if tombstoned. (Re-registration after deletion is
+  // handled in mergeUsers by clearing the tombstone on fresh login.)
+  state.users = state.users.filter(function(u) { return u && !isDeleted(u.name); });
+  // Strip data for deleted users, and anything older than the reset epoch.
+  state.sessions = state.sessions.filter(function(s) {
+    return s && !isDeleted(s.user) && (Number(s.timestamp) || 0) >= epoch;
+  });
+  state.dailyAwards = state.dailyAwards.filter(function(a) {
+    return a && !isDeleted(a.user) && (Number(a.windowStart) || 0) >= epoch - 86400000;
+  });
+  state.manualAdjustments = state.manualAdjustments.filter(function(m) {
+    return m && !isDeleted(m.user) && (Number(m.awardedAt) || 0) >= epoch;
+  });
+  state.endGameBonuses = state.endGameBonuses.filter(function(b) {
+    return b && !isDeleted(b.user);
+  });
+  // Task instances: release or remove those tied to a deleted user; drop pre-epoch ones.
+  state.taskInstances = state.taskInstances.filter(function(t) {
+    if (!t) return false;
+    if ((Number(t.spawnedAt) || 0) < epoch) return false; // from a previous game
+    if (t.status === 'completed' && isDeleted(t.claimedBy)) return false;
+    return true;
+  });
+  state.taskInstances.forEach(function(t) {
+    if (t.status === 'claimed' && isDeleted(t.claimedBy)) {
+      t.status = 'available'; t.claimedBy = null; t.claimedAt = null;
+    }
+  });
+  var after = JSON.stringify([state.users.length, state.sessions.length, state.dailyAwards.length, state.manualAdjustments.length, state.endGameBonuses.length, state.taskInstances.length]);
+  return before !== after;
 }
 
 // Merge two arrays of objects by a key. Incoming entries are included; local
