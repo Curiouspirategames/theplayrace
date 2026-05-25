@@ -1454,7 +1454,12 @@ var state = {
   resetEpoch: 0,
   // Version stamp for transfer state, so a stale device can't revert a transfer
   // lock/snapshot mid-process.
-  transferVersion: 0
+  transferVersion: 0,
+  // GENERAL tombstones for any deleted record, keyed by id → deletion timestamp.
+  // Covers manual adjustments, transfer snapshots, edited-away sessions, etc.
+  // The merge removes any record whose id is in here, so a deletion can't be
+  // undone by another device re-adding its stale copy.
+  deletedIds: {}
 };
 
 function seedDemoSessions() {
@@ -2482,6 +2487,13 @@ async function completeTask(id) {
   }
   task.status = 'completed';
   task.completedAt = Date.now();
+  // Clear any stale failed-claim for this exact task+user, so the task can never
+  // show as both completed and failed.
+  if (Array.isArray(state.failedClaims)) {
+    state.failedClaims = state.failedClaims.filter(function(f) {
+      return !(f && f.user === state.currentUser && f.taskInstanceId === task.id);
+    });
+  }
   logTaskActivity('<b>' + escapeHtml(state.currentUser) + '</b> completed <b>' + escapeHtml(task.title) + '</b> · +' + task.points + ' pts', 'completed');
   showToast('🎉 +' + task.points + ' points!');
   renderAll();
@@ -2838,6 +2850,7 @@ async function removeManualAdjustment(id) {
   var ok = await customConfirm('Remove this adjustment? The points will be reversed.', { title: 'Remove Adjustment', okText: 'Remove' });
   if (!ok) return;
   state.manualAdjustments = state.manualAdjustments.filter(function(a) { return a.id !== id; });
+  tombstoneId(id);
   showToast('Adjustment removed');
   renderAll();
 }
@@ -2979,6 +2992,7 @@ async function deleteTransferSnapshot(id) {
   var ok = await customConfirm('Remove this transfer snapshot? Those points will become untransferred again.', { title: 'Remove Snapshot', okText: 'Remove' });
   if (!ok) return;
   state.transferSnapshots = state.transferSnapshots.filter(function(s) { return s.id !== id; });
+  tombstoneId(id);
   state.transferVersion = Date.now();
   showToast('Snapshot removed');
   renderAdmin();
@@ -4117,6 +4131,7 @@ async function deleteSession(id) {
   var ok = await customConfirm('Delete this session?', { title: 'Delete Session', okText: 'Delete' });
   if (!ok) return;
   state.sessions = state.sessions.filter(function(x) { return x.id !== id; });
+  tombstoneId(id);
   showToast('Session deleted');
   renderAll();
 }
@@ -4211,6 +4226,7 @@ async function resetGame() {
   // Clear individual tombstones — they're irrelevant after a full wipe, and the
   // epoch now covers everything.
   state.deletedUsers = {};
+  state.deletedIds = {};
   // Reset the schedule so the game is NOT immediately live after a reset.
   // Park it in pre-game (start tomorrow) until an admin sets real dates.
   var resetStart = new Date();
@@ -4467,7 +4483,8 @@ function getSharedState() {
     endGameBonuses: state.endGameBonuses,
     deletedUsers: state.deletedUsers,
     resetEpoch: state.resetEpoch,
-    transferVersion: state.transferVersion
+    transferVersion: state.transferVersion,
+    deletedIds: state.deletedIds
   };
 }
 
@@ -4516,6 +4533,18 @@ function bumpConfigVersion() {
   state.config.configVersion = Date.now();
 }
 
+// Record that a record (by id) has been deleted, so the merge won't let another
+// device resurrect it. Use for any deletable record: manual adjustments,
+// transfer snapshots, edited-away sessions, etc.
+function tombstoneId(id) {
+  if (!id) return;
+  state.deletedIds = state.deletedIds || {};
+  state.deletedIds[id] = Date.now();
+}
+function isIdDeleted(id) {
+  return !!(state.deletedIds && state.deletedIds[id]);
+}
+
 function applySharedState(data) {
   if (!data) return;
   var hadLocalAdditions = false;
@@ -4533,6 +4562,15 @@ function applySharedState(data) {
       var incomingT = Number(data.deletedUsers[name]) || 0;
       var localT = Number(state.deletedUsers[name]) || 0;
       if (incomingT > localT) state.deletedUsers[name] = incomingT;
+    });
+  }
+  // General id-tombstones: union, keeping the latest time per id.
+  if (data.deletedIds && typeof data.deletedIds === 'object') {
+    state.deletedIds = state.deletedIds || {};
+    Object.keys(data.deletedIds).forEach(function(id) {
+      var it = Number(data.deletedIds[id]) || 0;
+      var lt = Number(state.deletedIds[id]) || 0;
+      if (it > lt) state.deletedIds[id] = it;
     });
   }
 
@@ -4676,6 +4714,31 @@ function purgeDeletedData() {
     state.failedClaims = state.failedClaims.filter(function(f) {
       return f && !isDeleted(f.user);
     });
+  }
+  // Reconcile a contradiction that can arise from cross-device merges: a task
+  // that is COMPLETED by a user should not also have a failed-claim record for
+  // that same user+instance (which would make the log show both "completed" and
+  // "failed"). The completion wins; drop the stale failed-claim.
+  if (Array.isArray(state.failedClaims) && Array.isArray(state.taskInstances)) {
+    var completedByUser = {};
+    state.taskInstances.forEach(function(t) {
+      if (t && t.status === 'completed' && t.claimedBy) {
+        completedByUser[t.claimedBy + '|' + t.id] = true;
+      }
+    });
+    state.failedClaims = state.failedClaims.filter(function(f) {
+      return f && !completedByUser[f.user + '|' + f.taskInstanceId];
+    });
+  }
+  // GENERAL id-tombstones: remove any record whose id was explicitly deleted,
+  // so a stale device can't resurrect a deleted manual adjustment, transfer
+  // snapshot, session, etc.
+  if (state.deletedIds && Object.keys(state.deletedIds).length) {
+    state.manualAdjustments = state.manualAdjustments.filter(function(m) { return m && !isIdDeleted(m.id); });
+    state.transferSnapshots = state.transferSnapshots.filter(function(s) { return s && !isIdDeleted(s.id); });
+    state.sessions = state.sessions.filter(function(s) { return s && !isIdDeleted(s.id); });
+    state.dailyAwards = state.dailyAwards.filter(function(a) { return a && !isIdDeleted(a.id); });
+    state.endGameBonuses = state.endGameBonuses.filter(function(b) { return b && !isIdDeleted(b.id); });
   }
   var after = JSON.stringify([state.users.length, state.sessions.length, state.dailyAwards.length, state.manualAdjustments.length, state.endGameBonuses.length, state.taskInstances.length, state.taskActivity.length, state.failedClaims.length]);
   return before !== after;
@@ -4873,10 +4936,24 @@ function subscribeGameDoc() {
     syncErrorCount = 0;  // a successful snapshot clears the error streak
     if (snap.exists()) {
       var data = snap.data();
+      var incomingJson = JSON.stringify(data);
       applyingRemote = true;
       applySharedState(data);
-      lastSavedJson = JSON.stringify(getSharedState());
       applyingRemote = false;
+      // CRITICAL: mark lastSavedJson as the data we just RECEIVED from the cloud,
+      // NOT our merged local state. If the merge kept a pending local change that
+      // the cloud doesn't have yet, our state now DIFFERS from the cloud — so the
+      // next doSave must detect that difference and write it. Setting this to our
+      // merged local state (the old bug) would falsely mark our unsaved change as
+      // "already saved" and silently drop it.
+      lastSavedJson = incomingJson;
+      // If our local state differs from what the cloud holds (we have unsynced
+      // changes the merge preserved), push them now so they actually persist.
+      var ourState = JSON.stringify(getSharedState());
+      if (ourState !== incomingJson) {
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = setTimeout(doSave, 300);
+      }
       fbDataExists = true;
       hasLoadedFromFirestore = true;   // we now hold the authoritative shared state
       // If this sync removed the logged-in user (deleted by an admin, or wiped
@@ -4922,10 +4999,16 @@ function directLoadFallback() {
   window.FB.getDoc(fbDocRef).then(function(snap) {
     if (hasLoadedFromFirestore) return;  // a snapshot may have arrived meanwhile
     if (snap.exists()) {
+      var incomingJson = JSON.stringify(snap.data());
       applyingRemote = true;
       applySharedState(snap.data());
-      lastSavedJson = JSON.stringify(getSharedState());
       applyingRemote = false;
+      lastSavedJson = incomingJson;  // mark cloud data as saved, not our merged state
+      // Push any pending local change the merge preserved.
+      if (JSON.stringify(getSharedState()) !== incomingJson) {
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = setTimeout(doSave, 300);
+      }
       fbDataExists = true;
     } else {
       fbDataExists = false;
