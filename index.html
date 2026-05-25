@@ -2791,6 +2791,8 @@ function saveTaskConfig() {
   if (!window || window < 5) { showToast('Claim window must be 5+ mins'); return; }
   state.config.tasksPerDay = perDay;
   state.config.claimWindowMins = window;
+  bumpConfigVersion();
+  saveState();   // persist to Firestore so the change syncs and survives
   showToast('✓ Task config saved');
 }
 
@@ -2799,6 +2801,8 @@ function saveDailyConfig() {
   var second = parseInt(document.getElementById('cfg-daily-2').value) || 0;
   var third = parseInt(document.getElementById('cfg-daily-3').value) || 0;
   state.config.dailyAwards = { first: first, second: second, third: third };
+  bumpConfigVersion();
+  saveState();   // persist to Firestore so the change syncs and survives
   showToast('✓ Daily awards config saved');
 }
 
@@ -2981,6 +2985,8 @@ function saveEndGameConfig() {
     tease:     { first: read('cfg-eg-tease-1'),   second: read('cfg-eg-tease-2'),   third: read('cfg-eg-tease-3') }
   };
   showToast('✓ End-of-game awards config saved');
+  bumpConfigVersion();
+  saveState();   // persist to Firestore so the change syncs and survives
   renderCategories();
 }
 
@@ -4000,6 +4006,7 @@ function saveConfig() {
   state.config.endDate = end;
   var pw = document.getElementById('cfg-admin-password').value.trim();
   if (pw) state.config.adminPassword = pw;
+  bumpConfigVersion();
   showToast('✓ Game config saved');
   renderHeader();
   updateCountdown();
@@ -4207,6 +4214,7 @@ async function resetGame() {
   state.config.endDate = resetEnd.getTime();
   // Reset admin password back to the default.
   state.config.adminPassword = 'spicy2026';
+  bumpConfigVersion();
   // The person resetting stays admin for this session, but is no longer in the (now-empty) roster.
   // Re-add them so they remain in the roster as an admin.
   if (state.currentUser) {
@@ -4489,7 +4497,14 @@ function sanitizeConfig(cfg) {
   ega.subboards = tier(ega.subboards, 75, 45, 20);
   ega.tease = tier(ega.tease, 100, 60, 30);
   cfg.endGameAwards = ega;
+  if (!isFinite(Number(cfg.configVersion))) cfg.configVersion = 0;
   return cfg;
+}
+
+// Bump the config version so this device's config wins over older copies on
+// other devices. Call this whenever an admin changes any config value.
+function bumpConfigVersion() {
+  state.config.configVersion = Date.now();
 }
 
 function applySharedState(data) {
@@ -4519,7 +4534,20 @@ function applySharedState(data) {
   var ourEpoch = Number(state.resetEpoch) || 0;
   var incomingIsStale = incomingEpoch < ourEpoch;
 
-  if (data.config && !incomingIsStale) state.config = sanitizeConfig(data.config);
+  // Config: only accept an incoming config if it's at least as NEW as ours,
+  // by a version timestamp. This stops a stale device (still holding old config)
+  // from overwriting an admin's just-made change on the next sync — the bug
+  // where task-count/award changes "wouldn't stick" mid-game.
+  if (data.config && !incomingIsStale) {
+    var incomingCfgV = Number(data.config.configVersion) || 0;
+    var ourCfgV = Number(state.config && state.config.configVersion) || 0;
+    if (incomingCfgV >= ourCfgV) {
+      state.config = sanitizeConfig(data.config);
+    }
+    // else: our config is newer — keep ours, and a corrective save below will
+    // re-assert it to the cloud so other devices converge to it.
+    else { hadLocalAdditions = true; }
+  }
 
   if (data.users && !incomingIsStale) state.users = mergeUsers(state.users, data.users);
   // ADDITIVE data (sessions, awards, adjustments, activity, bonuses): MERGE by
