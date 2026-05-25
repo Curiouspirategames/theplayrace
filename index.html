@@ -1451,7 +1451,10 @@ var state = {
   deletedUsers: {},
   // Full-reset epoch: any data created before this timestamp is discarded on
   // merge, so a reset can't be undone by a stale device pushing old data back.
-  resetEpoch: 0
+  resetEpoch: 0,
+  // Version stamp for transfer state, so a stale device can't revert a transfer
+  // lock/snapshot mid-process.
+  transferVersion: 0
 };
 
 function seedDemoSessions() {
@@ -2869,6 +2872,7 @@ async function prepareTransfer() {
     startedBy: state.currentUser,
     frozenAmounts: amounts
   };
+  state.transferVersion = Date.now();
   showToast('🔒 Transfer locked — values are frozen');
   renderAdmin();
   showTransferModal();
@@ -2951,6 +2955,7 @@ async function confirmTransferComplete() {
     lockedAt: pending.startedAt
   });
   state.pendingTransfer = null;
+  state.transferVersion = Date.now();
   showToast('✓ Transfer recorded · ' + totalAmount + ' points marked as transferred');
   renderAdmin();
 }
@@ -2965,6 +2970,7 @@ async function cancelTransfer() {
     return;
   }
   state.pendingTransfer = null;
+  state.transferVersion = Date.now();
   showToast('Transfer cancelled — no snapshot taken');
   renderAdmin();
 }
@@ -2973,6 +2979,7 @@ async function deleteTransferSnapshot(id) {
   var ok = await customConfirm('Remove this transfer snapshot? Those points will become untransferred again.', { title: 'Remove Snapshot', okText: 'Remove' });
   if (!ok) return;
   state.transferSnapshots = state.transferSnapshots.filter(function(s) { return s.id !== id; });
+  state.transferVersion = Date.now();
   showToast('Snapshot removed');
   renderAdmin();
 }
@@ -4193,6 +4200,7 @@ async function resetGame() {
   state.manualAdjustments = [];
   state.transferSnapshots = [];
   state.pendingTransfer = null;
+  state.transferVersion = Date.now();
   state.endGameBonuses = [];
   state.endGameAwardsApplied = false;
   // CRITICAL: bump the reset epoch. Any data created before now (from the
@@ -4458,7 +4466,8 @@ function getSharedState() {
     endGameAwardsApplied: state.endGameAwardsApplied,
     endGameBonuses: state.endGameBonuses,
     deletedUsers: state.deletedUsers,
-    resetEpoch: state.resetEpoch
+    resetEpoch: state.resetEpoch,
+    transferVersion: state.transferVersion
   };
 }
 
@@ -4560,11 +4569,15 @@ function applySharedState(data) {
   }
   // taskLibrary handled separately (LIBRARY SYNC); ignored here.
   if (data.taskInstances && !incomingIsStale) {
-    var mergedInst = mergeById(state.taskInstances, data.taskInstances, 'id', true /* incoming wins on conflict */);
+    var mergedInst = mergeTaskInstances(state.taskInstances, data.taskInstances);
     if (mergedInst.localExtras) hadLocalAdditions = true;
     state.taskInstances = mergedInst.list;
   }
-  if (data.failedClaims && !incomingIsStale) state.failedClaims = data.failedClaims;
+  if (data.failedClaims && !incomingIsStale) {
+    // Union by user+instance so a stale device can't erase a lockout (which
+    // would let someone re-claim a task they already failed).
+    state.failedClaims = mergeFailedClaims(state.failedClaims, data.failedClaims);
+  }
   if (data.dailyAwards && !incomingIsStale) {
     var mergedAwards = mergeById(state.dailyAwards, data.dailyAwards, 'id');
     if (mergedAwards.localExtras) hadLocalAdditions = true;
@@ -4576,9 +4589,26 @@ function applySharedState(data) {
     if (mergedAdj.localExtras) hadLocalAdditions = true;
     state.manualAdjustments = mergedAdj.list;
   }
-  if (data.transferSnapshots && !incomingIsStale) state.transferSnapshots = data.transferSnapshots;
-  if (typeof data.pendingTransfer !== 'undefined' && !incomingIsStale) state.pendingTransfer = data.pendingTransfer;
-  if (typeof data.endGameAwardsApplied !== 'undefined' && !incomingIsStale) state.endGameAwardsApplied = data.endGameAwardsApplied;
+  // Transfer state: only accept incoming if it is NEWER (version-stamped), so a
+  // stale device can't unlock a transfer mid-process or lose the frozen snapshot.
+  if (!incomingIsStale && (data.transferSnapshots || typeof data.pendingTransfer !== 'undefined')) {
+    var incomingTV = Number(data.transferVersion) || 0;
+    var ourTV = Number(state.transferVersion) || 0;
+    if (incomingTV >= ourTV) {
+      if (data.transferSnapshots) state.transferSnapshots = data.transferSnapshots;
+      if (typeof data.pendingTransfer !== 'undefined') state.pendingTransfer = data.pendingTransfer;
+      state.transferVersion = incomingTV;
+    } else {
+      hadLocalAdditions = true; // re-assert ours
+    }
+  }
+  // endGameAwardsApplied is STICKY-TRUE: once any device has applied end-game
+  // awards, that must never be reverted to false by a stale device (which would
+  // allow awards to be applied a SECOND time, doubling everyone's final bonus).
+  // It only goes back to false via an explicit reset (which bumps resetEpoch).
+  if (typeof data.endGameAwardsApplied !== 'undefined' && !incomingIsStale) {
+    state.endGameAwardsApplied = state.endGameAwardsApplied || data.endGameAwardsApplied;
+  }
   if (data.endGameBonuses && !incomingIsStale) {
     var mergedBonus = mergeById(state.endGameBonuses, data.endGameBonuses, 'id');
     if (mergedBonus.localExtras) hadLocalAdditions = true;
@@ -4657,6 +4687,60 @@ function purgeDeletedData() {
 // If incomingWins is true, when an id exists in both, the incoming version is
 // used (authoritative for mutable objects like task claim-state); otherwise the
 // existing local copy is kept for ids in both.
+// Merge task instances by id with LIFECYCLE-AWARE precedence. A task must never
+// regress: completed > claimed > available. This prevents a stale device that
+// still holds an 'available' (or 'claimed') copy of the same deterministic spawn
+// slot from overwriting a 'completed' one and wiping out the completion+points.
+function mergeTaskInstances(local, incoming) {
+  local = Array.isArray(local) ? local : [];
+  incoming = Array.isArray(incoming) ? incoming : [];
+  var rank = { completed: 3, claimed: 2, available: 1 };
+  function r(t) { return (t && rank[t.status]) || 0; }
+  var byId = {};
+  var localExtras = false;
+  // Seed with incoming.
+  incoming.forEach(function(t) { if (t && typeof t.id !== 'undefined') byId[t.id] = t; });
+  // Merge local, resolving conflicts by lifecycle rank.
+  local.forEach(function(t) {
+    if (!t || typeof t.id === 'undefined') return;
+    var existing = byId[t.id];
+    if (!existing) { byId[t.id] = t; localExtras = true; return; }
+    var rl = r(t), re = r(existing);
+    if (rl > re) {
+      // Local is further along (e.g. completed vs available) — keep local.
+      byId[t.id] = t;
+    } else if (rl === re) {
+      // Same status: for 'claimed', keep the EARLIER claim (first-come-first-served);
+      // for others they're equivalent, keep existing (incoming).
+      if (t.status === 'claimed' && existing.status === 'claimed') {
+        var tc = Number(t.claimedAt) || Infinity, ec = Number(existing.claimedAt) || Infinity;
+        if (tc < ec) byId[t.id] = t;
+      }
+      // completed vs completed: keep existing (identical outcome)
+    }
+    // else existing is further along — keep it (incoming wins legitimately).
+  });
+  var list = Object.keys(byId).map(function(k) { return byId[k]; });
+  return { list: list, localExtras: localExtras };
+}
+
+// Failed claims: union by user+taskInstanceId (no id field), so a stale device
+// can't erase a lockout and let someone re-claim a task they already failed.
+function mergeFailedClaims(local, incoming) {
+  local = Array.isArray(local) ? local : [];
+  incoming = Array.isArray(incoming) ? incoming : [];
+  var seen = {};
+  var out = [];
+  function add(f) {
+    if (!f) return;
+    var k = (f.user || '') + '|' + (f.taskInstanceId || '');
+    if (!seen[k]) { seen[k] = true; out.push(f); }
+  }
+  incoming.forEach(add);
+  local.forEach(add);
+  return out;
+}
+
 function mergeById(local, incoming, key, incomingWins) {
   local = Array.isArray(local) ? local : [];
   incoming = Array.isArray(incoming) ? incoming : [];
