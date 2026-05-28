@@ -2101,12 +2101,15 @@ function renderAdmin() {
                  'pool';
       var revokeBtn = t.status === 'completed' ?
         '<button class="btn btn-danger btn-small" onclick="revokeTaskCompletion(\'' + t.id + '\')">Revoke</button>' : '';
+      // Delete button on every row — removes a stray/broken task from the pool
+      // entirely (e.g. a task stuck showing available after being completed).
+      var deleteBtn = '<button class="btn btn-danger btn-small" onclick="deleteTaskInstance(\'' + t.id + '\')" style="margin-left:0.4rem">Delete</button>';
       return '<div class="admin-session-row">' +
         '<div>' +
           '<b>' + escapeHtml(t.title) + '</b> <span style="color:' + statusColor + ';font-size:0.6rem;letter-spacing:0.1em">[' + t.status + ']</span>' +
           '<div class="admin-user-time">' + meta + ' · ' + t.points + ' pts</div>' +
         '</div>' +
-        revokeBtn +
+        '<div style="display:flex;align-items:center">' + revokeBtn + deleteBtn + '</div>' +
       '</div>';
     }).join('');
   }
@@ -2356,6 +2359,9 @@ function checkAndSpawnTasks() {
       var spawnId = 'spawn-' + d + '-' + i;
       var alreadySpawned = state.taskInstances.some(function(t) { return t.spawnId === spawnId; });
       if (alreadySpawned) continue;
+      // Don't re-spawn a slot an admin has explicitly deleted (tombstoned),
+      // otherwise the deleted task would just reappear on the next tick.
+      if (isIdDeleted(spawnId)) continue;
 
       // Deterministic template pick seeded by the spawn slot, so EVERY device
       // independently chooses the SAME template for this slot. This means even
@@ -2466,9 +2472,33 @@ async function claimTask(id) {
   task.status = 'claimed';
   task.claimedBy = state.currentUser;
   task.claimedAt = Date.now();
+  myPendingClaimId = id;                 // watch this claim in case a sync overturns it
+  myPendingClaimTitle = task.title;
   logTaskActivity('<b>' + escapeHtml(state.currentUser) + '</b> claimed <b>' + escapeHtml(task.title) + '</b>', 'claimed');
   showToast('✓ Task claimed — you have ' + state.config.claimWindowMins + ' mins!');
   renderAll();
+  saveStateNow();   // claims are contested — write immediately, don't wait out the debounce
+}
+
+// After a sync, if a task we just claimed is no longer ours (someone else's
+// claim won the race, or it reverted), tell the player immediately and clearly
+// instead of letting them discover it only when they try to mark it done.
+var myPendingClaimId = null;
+var myPendingClaimTitle = '';
+function checkMyClaimStillMine() {
+  if (!myPendingClaimId || !state.currentUser) return;
+  var t = state.taskInstances.find(function(x) { return x.id === myPendingClaimId; });
+  if (!t) { myPendingClaimId = null; return; }
+  // If it's no longer claimed by me (someone beat me to it), notify once.
+  if (!(t.status === 'claimed' && t.claimedBy === state.currentUser) && t.status !== 'completed') {
+    var who = t.claimedBy ? (' by ' + t.claimedBy) : '';
+    showToast('⚡ "' + (myPendingClaimTitle || 'That task') + '" was claimed first' + who + ' — try another');
+    myPendingClaimId = null;
+    myPendingClaimTitle = '';
+  } else if (t.status === 'completed' && t.claimedBy === state.currentUser) {
+    // We completed it; stop watching.
+    myPendingClaimId = null;
+  }
 }
 
 async function completeTask(id) {
@@ -2768,6 +2798,24 @@ async function revokeTaskCompletion(id) {
   task.status = 'revoked';
   logTaskActivity('Admin revoked <b>' + task.points + ' pts</b> from <b>' + escapeHtml(task.claimedBy) + '</b> for <b>' + escapeHtml(task.title) + '</b>', 'revoked');
   showToast('Points revoked');
+  renderAll();
+}
+
+// Admin: permanently remove a task instance from the game (e.g. a stray/broken
+// task stuck showing available after it was completed). Tombstones the id so
+// the deletion sticks across all devices and can't be resurrected by sync.
+async function deleteTaskInstance(id) {
+  var task = state.taskInstances.find(function(t) { return t.id === id; });
+  if (!task) return;
+  var warn = (task.status === 'completed')
+    ? 'Delete "' + task.title + '"? It was completed by ' + (task.claimedBy || 'someone') + ' — this removes the task AND the ' + task.points + ' points from it. (If they earned it legitimately, award the points manually instead.)'
+    : 'Delete "' + task.title + '" from the game? This removes it for everyone.';
+  var ok = await customConfirm(warn, { title: 'Delete Task', okText: 'Delete' });
+  if (!ok) return;
+  state.taskInstances = state.taskInstances.filter(function(t) { return t.id !== id; });
+  tombstoneId(id);   // so a stale device can't bring it back
+  logTaskActivity('Admin removed task <b>' + escapeHtml(task.title) + '</b>', 'revoked');
+  showToast('Task deleted');
   renderAll();
 }
 
@@ -4739,6 +4787,7 @@ function purgeDeletedData() {
     state.sessions = state.sessions.filter(function(s) { return s && !isIdDeleted(s.id); });
     state.dailyAwards = state.dailyAwards.filter(function(a) { return a && !isIdDeleted(a.id); });
     state.endGameBonuses = state.endGameBonuses.filter(function(b) { return b && !isIdDeleted(b.id); });
+    state.taskInstances = state.taskInstances.filter(function(t) { return t && !isIdDeleted(t.id); });
   }
   var after = JSON.stringify([state.users.length, state.sessions.length, state.dailyAwards.length, state.manualAdjustments.length, state.endGameBonuses.length, state.taskInstances.length, state.taskActivity.length, state.failedClaims.length]);
   return before !== after;
@@ -4875,6 +4924,16 @@ function saveState() {
   saveTimer = setTimeout(doSave, 400);
 }
 
+// Immediate (non-debounced) save for contested actions like claiming a task,
+// where shrinking the write window reduces the chance two devices collide.
+function saveStateNow() {
+  if (applyingRemote) return;
+  if (!firebaseConnected || !fbDocRef) return;
+  if (!hasLoadedFromFirestore) return;
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  doSave();
+}
+
 function doSave() {
   if (!firebaseConnected || !fbDocRef) return;
   if (!hasLoadedFromFirestore) return;  // CRITICAL: never save before we've loaded existing data
@@ -4960,6 +5019,7 @@ function subscribeGameDoc() {
       // by a reset), don't let them keep playing into a void — log them out
       // with a clear message.
       if (checkCurrentUserStillValid()) {
+        checkMyClaimStillMine();   // tell them immediately if their claim got overturned
         if (state.currentUser || state.isGuest) {
           _renderAll_inner();
         } else {
