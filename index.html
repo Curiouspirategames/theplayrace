@@ -2704,9 +2704,13 @@ function checkDailyAwards() {
   for (var d = 0; d < fullDays; d++) {
     var windowStart = state.config.startDate + (d * 86400000);
     var windowEnd = windowStart + 86400000;
-    // Have we already awarded for this window?
-    var already = state.dailyAwards.some(function(a) { return a.windowIndex === d; });
-    if (already) continue;
+    // Awards are "settled" 6h after the window ends. Until then, allow
+    // re-evaluation so a device with more complete sync data can correct
+    // standings that were computed early with stale data. 6h is generous
+    // enough for late-syncing sessions to converge before locking in.
+    var settlementCutoff = windowEnd + 6 * 3600000;
+    var existing = state.dailyAwards.filter(function(a) { return a.windowIndex === d; });
+    if (existing.length && now >= settlementCutoff) continue;  // locked in
 
     // Compute playtime per user for this window (excluding tease — rules say tease only counts toward Toy Tease leaderboard)
     var playtime = {};
@@ -2728,6 +2732,14 @@ function checkDailyAwards() {
 
     if (!ranked.length) continue;
 
+    // We're about to (re-)compute awards for window d. Remove any existing
+    // awards for this window first, so we replace rather than stack. Combined
+    // with the per-place id, this means the merge collapses duplicates and
+    // the latest evaluation wins.
+    if (existing.length) {
+      state.dailyAwards = state.dailyAwards.filter(function(a) { return a.windowIndex !== d; });
+    }
+
     // Group by playtime to handle ties
     var awards = state.config.dailyAwards;
     var tiers = [awards.first, awards.second, awards.third];
@@ -2742,18 +2754,28 @@ function checkDailyAwards() {
       if (place >= 3) break;
       var pts = tiers[place];
       if (pts > 0) {
+        var awardId = 'daily-' + d + '-' + (place + 1);
+        // Find the previous award we just cleared above (we saved 'existing'),
+        // so we can decide whether to log: only log if this is genuinely new or
+        // the recipient/points differ. Avoids spamming the activity feed when
+        // re-evaluation produces the same result as before.
+        var prior = existing.filter(function(a) { return a.id === awardId; })[0];
+        var changed = !prior || prior.user !== ranked[i].user || prior.points !== pts;
         state.dailyAwards.push({
-          id: 'daily-' + d + '-' + (place + 1) + '-' + ranked[i].user,  // deterministic: same award from any device collapses on merge
+          id: awardId,
           user: ranked[i].user,
           points: pts,
           place: place + 1,
           windowIndex: d,
           windowStart: windowStart,
           windowEnd: windowEnd,
-          mins: ranked[i].mins
+          mins: ranked[i].mins,
+          awardedAt: Date.now()
         });
-        var placeLabel = place === 0 ? '1st' : place === 1 ? '2nd' : '3rd';
-        logTaskActivity('<b>' + escapeHtml(ranked[i].user) + '</b> earned <b>' + pts + ' pts</b> for ' + placeLabel + ' place daily playtime (' + fmtHMS(ranked[i].mins) + ')', 'daily');
+        if (changed) {
+          var placeLabel = place === 0 ? '1st' : place === 1 ? '2nd' : '3rd';
+          logTaskActivity('<b>' + escapeHtml(ranked[i].user) + '</b> earned <b>' + pts + ' pts</b> for ' + placeLabel + ' place daily playtime (' + fmtHMS(ranked[i].mins) + ')', 'daily');
+        }
       }
     }
   }
@@ -4667,7 +4689,19 @@ function applySharedState(data) {
   if (data.dailyAwards && !incomingIsStale) {
     var mergedAwards = mergeById(state.dailyAwards, data.dailyAwards, 'id');
     if (mergedAwards.localExtras) hadLocalAdditions = true;
-    state.dailyAwards = mergedAwards.list;
+    // For dailyAwards: when two devices both computed a window's awards (same
+    // id, possibly different user in that place), the LATEST evaluation wins
+    // because it has more complete playtime data. We re-collapse here by id,
+    // preferring the entry with the higher awardedAt.
+    var byId = {};
+    mergedAwards.list.forEach(function(a) {
+      if (!a || !a.id) return;
+      var ex = byId[a.id];
+      var aT = Number(a.awardedAt) || 0;
+      var eT = ex ? (Number(ex.awardedAt) || 0) : -1;
+      if (!ex || aT >= eT) byId[a.id] = a;
+    });
+    state.dailyAwards = Object.keys(byId).map(function(k) { return byId[k]; });
   }
   if (data.taskActivity && !incomingIsStale) state.taskActivity = mergeActivity(state.taskActivity, data.taskActivity);
   if (data.manualAdjustments && !incomingIsStale) {
