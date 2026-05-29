@@ -2527,6 +2527,7 @@ async function completeTask(id) {
   logTaskActivity('<b>' + escapeHtml(state.currentUser) + '</b> completed <b>' + escapeHtml(task.title) + '</b> · +' + task.points + ' pts', 'completed');
   showToast('🎉 +' + task.points + ' points!');
   renderAll();
+  saveStateNow();   // write immediately so the completion + points are durable
 }
 
 async function giveUpTask(id) {
@@ -2547,6 +2548,7 @@ async function giveUpTask(id) {
   task.claimedAt = null;
   showToast('Task returned to pool');
   renderAll();
+  saveStateNow();   // write immediately so the give-up is durable
 }
 
 function fmtTaskTimeRemaining(claimedAt) {
@@ -2821,6 +2823,7 @@ async function revokeTaskCompletion(id) {
   logTaskActivity('Admin revoked <b>' + task.points + ' pts</b> from <b>' + escapeHtml(task.claimedBy) + '</b> for <b>' + escapeHtml(task.title) + '</b>', 'revoked');
   showToast('Points revoked');
   renderAll();
+  saveStateNow();
 }
 
 // Admin: permanently remove a task instance from the game (e.g. a stray/broken
@@ -2839,6 +2842,7 @@ async function deleteTaskInstance(id) {
   logTaskActivity('Admin removed task <b>' + escapeHtml(task.title) + '</b>', 'revoked');
   showToast('Task deleted');
   renderAll();
+  saveStateNow();
 }
 
 function manualSpawnTask(filterTag) {
@@ -2914,6 +2918,7 @@ function addManualAdjustment() {
   document.getElementById('adj-reason').value = '';
   showToast((points > 0 ? '+' : '') + points + ' pts ' + (points > 0 ? 'awarded to' : 'deducted from') + ' ' + user);
   renderAll();
+  saveStateNow();   // write immediately so the adjustment is durable
 }
 
 async function removeManualAdjustment(id) {
@@ -2923,6 +2928,7 @@ async function removeManualAdjustment(id) {
   tombstoneId(id);
   showToast('Adjustment removed');
   renderAll();
+  saveStateNow();
 }
 
 // =========== TRANSFER SNAPSHOTS ===========
@@ -2959,6 +2965,7 @@ async function prepareTransfer() {
   showToast('🔒 Transfer locked — values are frozen');
   renderAdmin();
   showTransferModal();
+  saveStateNow();
 }
 
 function showTransferModal() {
@@ -3041,6 +3048,7 @@ async function confirmTransferComplete() {
   state.transferVersion = Date.now();
   showToast('✓ Transfer recorded · ' + totalAmount + ' points marked as transferred');
   renderAdmin();
+  saveStateNow();   // write immediately so the transfer is durable
 }
 
 // Step 2b: Cancel pending transfer — releases lock, no snapshot taken
@@ -3056,6 +3064,7 @@ async function cancelTransfer() {
   state.transferVersion = Date.now();
   showToast('Transfer cancelled — no snapshot taken');
   renderAdmin();
+  saveStateNow();
 }
 
 async function deleteTransferSnapshot(id) {
@@ -3066,6 +3075,7 @@ async function deleteTransferSnapshot(id) {
   state.transferVersion = Date.now();
   showToast('Snapshot removed');
   renderAdmin();
+  saveStateNow();
 }
 
 function saveEndGameConfig() {
@@ -3985,6 +3995,7 @@ async function submitSession() {
   resetTimerUI();
   showToast('✓ ' + mins + 'm logged as ' + MODES[finalMode].label + '!');
   renderAll();
+  saveStateNow();   // CRITICAL: write the session immediately so closing the tab can't lose it
 }
 
 async function discardSession() {
@@ -4074,6 +4085,7 @@ function submitManual() {
   document.getElementById('manual-toy').value = '';
   showToast('✓ Manual log: ' + mins + 'm ' + MODES[mode].label);
   renderAll();
+  saveStateNow();   // CRITICAL: write the session immediately so closing the tab can't lose it
 }
 
 // =========== ADMIN ===========
@@ -4204,6 +4216,7 @@ async function deleteSession(id) {
   tombstoneId(id);
   showToast('Session deleted');
   renderAll();
+  saveStateNow();
 }
 
 function exportBackup() {
