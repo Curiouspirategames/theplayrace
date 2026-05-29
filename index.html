@@ -1408,6 +1408,13 @@ var DEFAULT_TASK_LIBRARY = [
   { id: 't61', title: "Public Pulse", description: "Use a remote-controlled toy in a quasi-public space (your back garden, balcony, etc.) for 10 minutes.", points: 15, tag: 'general' }
 ];
 
+// =========== VERSION CHECK / AUTO-UPDATE ===========
+// Bumped on every deploy. Stored in Firestore at games/{id}_meta as
+// latestAppVersion. Each device compares its own APP_VERSION against the cloud
+// value on load and periodically; when behind, shows an update banner and
+// (after a grace period with no active activity) auto-reloads.
+var APP_VERSION = 41;
+
 var state = {
   currentUser: null,
   isAdmin: false,
@@ -5019,6 +5026,9 @@ function onFirebaseReadyImpl() {
   fbDocRef = window.FB.doc(window.FB.db, FB_DOC_PATH[0], FB_DOC_PATH[1]);
   firebaseConnected = true;
   subscribeGameDoc();
+  // Kick off version check immediately and on a 5-min interval.
+  checkAppVersion();
+  setInterval(checkAppVersion, 5 * 60 * 1000);
 
   // Safety net: if the listener hasn't delivered a first snapshot within a few
   // seconds (slow/flaky connection, or a silently-failed listener), do a direct
@@ -5341,6 +5351,58 @@ function tickTasks() {
     var after = JSON.stringify(getSharedState());
     if (after !== before) saveState();
   }
+}
+
+// =========== VERSION CHECK ===========
+// Reads the latest deployed version from a tiny meta doc in Firestore. If the
+// running APP_VERSION is older, shows an update banner. If the running version
+// is newer, writes its number to the cloud (this device's deploy is the latest).
+// The meta doc is intentionally separate from the game doc so old-code devices
+// (which don't know about this field) can never accidentally clobber it.
+var appVersionBannerShown = false;
+function checkAppVersion() {
+  if (!window.FB || !window.FB.db) return;
+  try {
+    var metaRef = window.FB.doc(window.FB.db, FB_DOC_PATH[0], FB_DOC_PATH[1] + '_appversion');
+    window.FB.getDoc(metaRef).then(function(snap) {
+      var cloudVersion = 0;
+      if (snap.exists()) {
+        var d = snap.data();
+        cloudVersion = Number(d.latestAppVersion) || 0;
+      }
+      if (APP_VERSION > cloudVersion) {
+        // Our running version is newer than what's recorded — we just deployed.
+        // Publish our version so other devices learn to update.
+        window.FB.setDoc(metaRef, { latestAppVersion: APP_VERSION, updatedAt: Date.now() }).catch(function() {});
+      } else if (APP_VERSION < cloudVersion) {
+        // We're running outdated code. Surface the update.
+        showUpdateBanner(cloudVersion);
+        // If the user isn't in the middle of something contested (no claim, no
+        // active timer) and we've been showing the banner for 60s, auto-reload.
+        setTimeout(function() {
+          if (!document.getElementById('app-update-banner')) return;  // dismissed
+          var hasActive = !!state.activeTimer || !!state.taskInstances.find(function(t) { return t.status === 'claimed' && t.claimedBy === state.currentUser; });
+          if (!hasActive) {
+            try { window.location.reload(); } catch (e) {}
+          }
+        }, 60 * 1000);
+      }
+    }).catch(function() { /* silent: meta doc may not exist on first deploy */ });
+  } catch (e) { /* defensive */ }
+}
+function showUpdateBanner(cloudVersion) {
+  if (appVersionBannerShown) return;
+  appVersionBannerShown = true;
+  var banner = document.createElement('div');
+  banner.id = 'app-update-banner';
+  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:linear-gradient(90deg,#ff5fa2,#ff7e2e);color:#0a0014;font-family:inherit;font-weight:700;padding:0.8rem 1rem;text-align:center;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.5);font-size:0.95rem;letter-spacing:0.02em';
+  banner.innerHTML = '🔄 A NEW VERSION OF THE GAME IS AVAILABLE — tap here to update (your data is safe)';
+  banner.onclick = function() {
+    try { window.location.reload(); } catch (e) {}
+  };
+  document.body.appendChild(banner);
+  // Nudge the rest of the UI down so the banner doesn't cover content.
+  document.body.style.paddingTop = (banner.offsetHeight || 50) + 'px';
 }
 
 // Initial check on load (catches tasks that should have spawned while away).
