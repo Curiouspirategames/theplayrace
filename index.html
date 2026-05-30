@@ -1434,7 +1434,7 @@ var DEFAULT_TASK_LIBRARY = [
 // latestAppVersion. Each device compares its own APP_VERSION against the cloud
 // value on load and periodically; when behind, shows an update banner and
 // (after a grace period with no active activity) auto-reloads.
-var APP_VERSION = 44;
+var APP_VERSION = 46;
 
 var state = {
   currentUser: null,
@@ -2439,7 +2439,10 @@ function checkAndSpawnTasks() {
         completedAt: null
       });
       var tagLabel = (template.tag === 'bdsm') ? ' [BDSM]' : '';
-      logTaskActivity('A new task spawned: <b>' + escapeHtml(template.title) + '</b>' + tagLabel + ' · ' + template.points + ' pts', 'spawned');
+      // Deterministic log id keyed to the spawn slot so two devices that both
+      // log this spawn produce the same record id, which the merge collapses.
+      var spawnLogId = 'log-spawn-' + spawnId;
+      logTaskActivity('A new task spawned: <b>' + escapeHtml(template.title) + '</b>' + tagLabel + ' · ' + template.points + ' pts', 'spawned', spawnLogId);
     }
   }
 }
@@ -2457,7 +2460,7 @@ function checkExpiredClaims() {
       t.status = 'available';
       if (!already) {
         state.failedClaims.push({ user: t.claimedBy, taskInstanceId: t.id });
-        logTaskActivity('<b>' + escapeHtml(t.claimedBy) + '</b> ran out of time on <b>' + escapeHtml(t.title) + '</b>', 'failed');
+      logTaskActivity('<b>' + escapeHtml(t.claimedBy) + '</b> ran out of time on <b>' + escapeHtml(t.title) + '</b>', 'failed', 'log-expire-' + t.id);
       }
       t.claimedBy = null;
       t.claimedAt = null;
@@ -2509,7 +2512,7 @@ async function claimTask(id) {
   task.claimedAt = Date.now();
   myPendingClaimId = id;                 // watch this claim in case a sync overturns it
   myPendingClaimTitle = task.title;
-  logTaskActivity('<b>' + escapeHtml(state.currentUser) + '</b> claimed <b>' + escapeHtml(task.title) + '</b>', 'claimed');
+  logTaskActivity('<b>' + escapeHtml(state.currentUser) + '</b> claimed <b>' + escapeHtml(task.title) + '</b>', 'claimed', 'log-claim-' + task.id);
   showToast('✓ Task claimed — you have ' + state.config.claimWindowMins + ' mins!');
   renderAll();
   saveStateNow();   // claims are contested — write immediately, don't wait out the debounce
@@ -2566,7 +2569,7 @@ async function completeTask(id) {
       return !(f && f.user === state.currentUser && f.taskInstanceId === task.id);
     });
   }
-  logTaskActivity('<b>' + escapeHtml(state.currentUser) + '</b> completed <b>' + escapeHtml(task.title) + '</b> · +' + task.points + ' pts', 'completed');
+  logTaskActivity('<b>' + escapeHtml(state.currentUser) + '</b> completed <b>' + escapeHtml(task.title) + '</b> · +' + task.points + ' pts', 'completed', 'log-complete-' + task.id);
   showToast('🎉 +' + task.points + ' points!');
   renderAll();
   saveStateNow();   // write immediately so the completion + points are durable
@@ -2584,7 +2587,7 @@ async function giveUpTask(id) {
     return;
   }
   state.failedClaims.push({ user: state.currentUser, taskInstanceId: task.id });
-  logTaskActivity('<b>' + escapeHtml(state.currentUser) + '</b> gave up on <b>' + escapeHtml(task.title) + '</b>', 'failed');
+  logTaskActivity('<b>' + escapeHtml(state.currentUser) + '</b> gave up on <b>' + escapeHtml(task.title) + '</b>', 'failed', 'log-giveup-' + task.id);
   task.status = 'available';
   task.claimedBy = null;
   task.claimedAt = null;
@@ -3349,6 +3352,7 @@ async function applyEndGameAwards() {
   logTaskActivity('🏆 End-of-game bonuses applied: ' + awards.length + ' awards across ' + (Object.keys(awards.reduce(function(acc, a) { acc[a.board]=1; return acc; }, {})).length) + ' boards', 'completed');
   showToast('🏆 Bonuses applied!');
   renderAll();
+  saveStateNow();   // CRITICAL: write immediately — this is the most important save in the game
 }
 
 async function resetEndGameBonuses() {
@@ -3358,6 +3362,7 @@ async function resetEndGameBonuses() {
   state.endGameAwardsApplied = false;
   showToast('Bonuses reset');
   renderAll();
+  saveStateNow();
 }
 
 function renderAll() {
