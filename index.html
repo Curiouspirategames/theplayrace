@@ -15,7 +15,7 @@
 <script type="module">
   // ===== Firebase initialisation (live shared data) =====
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp, collection, getDocs, deleteDoc, query, orderBy, limit }
+  import { getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp, collection, getDocs, deleteDoc, query, orderBy, limit, enableIndexedDbPersistence }
     from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
   import { getAuth, signInAnonymously, onAuthStateChanged }
     from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
@@ -32,6 +32,20 @@
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
   const auth = getAuth(app);
+
+  // Enable offline persistence so a brief network drop between "submit" and
+  // "cloud acknowledges" doesn't silently lose a session. Without this, any
+  // write that's in-flight when the user closes the tab on a flaky mobile
+  // connection is simply lost. With it, Firestore queues writes to IndexedDB
+  // and flushes them the next time the app connects.
+  enableIndexedDbPersistence(db).catch(function(err) {
+    // 'failed-precondition': multiple tabs open — persistence only works in
+    // one tab at a time; the others still function, just without offline queuing.
+    // 'unimplemented': browser doesn't support IndexedDB (very rare).
+    // Either way, the app continues working — this is a resilience enhancement,
+    // not a critical dependency.
+    console.warn('Firestore offline persistence not available:', err.code);
+  });
 
   // Expose what the main (classic) script needs on window.FB
   window.FB = {
@@ -1420,7 +1434,7 @@ var DEFAULT_TASK_LIBRARY = [
 // latestAppVersion. Each device compares its own APP_VERSION against the cloud
 // value on load and periodically; when behind, shows an update banner and
 // (after a grace period with no active activity) auto-reloads.
-var APP_VERSION = 41;
+var APP_VERSION = 44;
 
 var state = {
   currentUser: null,
@@ -2327,9 +2341,15 @@ function toggleBdsmOptIn() {
   renderAll();
 }
 
-function logTaskActivity(text, status) {
+function logTaskActivity(text, status, explicitId) {
+  // If an explicit (deterministic) id is provided AND an entry with that id
+  // already exists, skip — this prevents duplicate logs on the same device
+  // when functions are called more than once for the same logical event.
+  if (explicitId && state.taskActivity.some(function(a) { return a && a.id === explicitId; })) {
+    return;
+  }
   state.taskActivity.unshift({
-    id: uidTask(),
+    id: explicitId || uidTask(),
     text: text,
     status: status,
     timestamp: Date.now()
@@ -2466,6 +2486,7 @@ function getAvailableTasks() {
 
 async function claimTask(id) {
   if (state.isGuest || !state.currentUser) { showToast('Log in to play'); return; }
+  if (!hasLoadedFromFirestore) { showToast('⏳ Still syncing — please try again in a moment'); return; }
   var gs = getGameState();
   if (gs === 'pre') { showToast('Game hasn\'t started yet'); return; }
   if (gs === 'ended') { showToast('Game has ended'); return; }
@@ -2516,6 +2537,13 @@ function checkMyClaimStillMine() {
 }
 
 async function completeTask(id) {
+  // If the cloud hasn't loaded yet (tab just reloaded), we don't have the
+  // authoritative task list yet. Completing now would silently fail because
+  // the task instance won't be found. Tell the user to wait a moment.
+  if (!hasLoadedFromFirestore) {
+    showToast('⏳ Still syncing — please try again in a moment');
+    return;
+  }
   var task = state.taskInstances.find(function(t) { return t.id === id; });
   if (!task || task.status !== 'claimed' || task.claimedBy !== state.currentUser) return;
   var ok = await customConfirm('Mark this task as complete? You\'ll get ' + task.points + ' points. (Posting proof in the server is encouraged where possible)', { title: 'Complete Task', okText: 'Mark Complete', danger: false });
@@ -2790,7 +2818,12 @@ function checkDailyAwards() {
         });
         if (changed) {
           var placeLabel = place === 0 ? '1st' : place === 1 ? '2nd' : '3rd';
-          logTaskActivity('<b>' + escapeHtml(ranked[i].user) + '</b> earned <b>' + pts + ' pts</b> for ' + placeLabel + ' place daily playtime (' + fmtHMS(ranked[i].mins) + ')', 'daily');
+          // Deterministic log id keyed to (window, place, user, points) so two
+          // devices that both happen to log the same award produce the SAME
+          // record id, which the merge then collapses to one. Without this,
+          // each device gets its own random id and the entries pile up.
+          var logId = 'log-daily-' + d + '-' + (place + 1) + '-' + ranked[i].user + '-' + pts;
+          logTaskActivity('<b>' + escapeHtml(ranked[i].user) + '</b> earned <b>' + pts + ' pts</b> for ' + placeLabel + ' place daily playtime (' + fmtHMS(ranked[i].mins) + ')', 'daily', logId);
         }
       }
     }
@@ -3961,6 +3994,42 @@ function stopTimer() {
   document.getElementById('timer-status-bar').style.display = 'none';
 }
 
+// =========== PENDING SESSIONS BUFFER ===========
+// When a player submits a session before the first cloud snapshot has arrived
+// (e.g. tab was killed and just reloaded, or very slow connection), we can't
+// save to Firestore yet. Instead we park the session in localStorage so it
+// survives a reload, then flush it to the cloud the moment the first snapshot
+// arrives. This prevents the "submitted but missing" scenario on mobile.
+var PENDING_SESSIONS_KEY = 'prs-pending-sessions';
+function persistPendingSessions() {
+  try {
+    // Gather any sessions that aren't yet in the cloud (we don't know which
+    // those are without a snapshot, so we buffer ALL local sessions from this
+    // user in the current tab as a safety net — they'll be deduped on flush).
+    var myPending = state.sessions.filter(function(s) { return s.user === state.currentUser; });
+    localStorage.setItem(PENDING_SESSIONS_KEY, JSON.stringify(myPending));
+  } catch (e) { /* localStorage full or unavailable — silent */ }
+}
+function flushPendingSessions() {
+  // Called once after the first cloud snapshot arrives. Merges any locally-
+  // parked sessions into state (deduped by id) and saves.
+  try {
+    var raw = localStorage.getItem(PENDING_SESSIONS_KEY);
+    if (!raw) return;
+    var pending = JSON.parse(raw);
+    if (!Array.isArray(pending) || !pending.length) return;
+    var existingIds = {};
+    state.sessions.forEach(function(s) { existingIds[s.id] = true; });
+    var toAdd = pending.filter(function(s) { return s && s.id && !existingIds[s.id]; });
+    if (toAdd.length) {
+      toAdd.forEach(function(s) { state.sessions.push(s); });
+      console.log('Flushed ' + toAdd.length + ' locally-buffered session(s) to cloud.');
+      saveStateNow();
+    }
+    localStorage.removeItem(PENDING_SESSIONS_KEY);
+  } catch (e) { /* silent */ }
+}
+
 function bumpEdge() {
   if (!state.activeTimer) return;
   state.activeTimer.edges++;
@@ -3977,39 +4046,46 @@ function bumpOrgasm() {
   renderStatusBar();
 }
 
+var submittingSession = false;
 async function submitSession() {
   if (!state.activeTimer) return;
-  var elapsedSecs = getElapsedSecs();
-  if (elapsedSecs < 30) {
-    var ok = await customConfirm('Session is under 30 seconds. Submit anyway?', { title: 'Short Session', okText: 'Submit', danger: false });
-    if (!ok) return;
-  }
-  var mins = Math.max(1, Math.round(elapsedSecs / 60));
-  // Catch forgotten timers: anything over 3 hours is almost certainly left running.
-  if (mins > 180) {
-    var okLong = await customConfirm('This session is ' + fmtHMS(mins) + ' long — did you leave the timer running by accident? Submit it anyway?', { title: 'Very Long Session', okText: 'Submit', danger: false });
-    if (!okLong) return;
-  }
-  var finalMode = getSelectedMode();
+  if (submittingSession) return;   // prevent double-tap creating duplicate sessions
+  submittingSession = true;
+  try {
+    var elapsedSecs = getElapsedSecs();
+    if (elapsedSecs < 30) {
+      var ok = await customConfirm('Session is under 30 seconds. Submit anyway?', { title: 'Short Session', okText: 'Submit', danger: false });
+      if (!ok) return;
+    }
+    var mins = Math.max(1, Math.round(elapsedSecs / 60));
+    // Catch forgotten timers: anything over 3 hours is almost certainly left running.
+    if (mins > 180) {
+      var okLong = await customConfirm('This session is ' + fmtHMS(mins) + ' long — did you leave the timer running by accident? Submit it anyway?', { title: 'Very Long Session', okText: 'Submit', danger: false });
+      if (!okLong) return;
+    }
+    var finalMode = getSelectedMode();
 
-  state.sessions.push({
-    id: uid(),
-    user: state.currentUser,
-    mode: finalMode,
-    durationMins: mins,
-    edges: state.activeTimer.edges,
-    orgasms: state.activeTimer.orgasms,
-    toy: state.activeTimer.toy,
-    timestamp: Date.now(),
-    manual: false
-  });
+    state.sessions.push({
+      id: uid(),
+      user: state.currentUser,
+      mode: finalMode,
+      durationMins: mins,
+      edges: state.activeTimer.edges,
+      orgasms: state.activeTimer.orgasms,
+      toy: state.activeTimer.toy,
+      timestamp: Date.now(),
+      manual: false
+    });
 
-  state.activeTimer = null;
-  persistTimer();
-  resetTimerUI();
-  showToast('✓ ' + mins + 'm logged as ' + MODES[finalMode].label + '!');
-  renderAll();
-  saveStateNow();   // CRITICAL: write the session immediately so closing the tab can't lose it
+    state.activeTimer = null;
+    persistTimer();
+    resetTimerUI();
+    showToast('✓ ' + mins + 'm logged as ' + MODES[finalMode].label + '!');
+    renderAll();
+    saveStateNow();   // write immediately; if cloud not loaded yet, queues for flush on first load
+  } finally {
+    submittingSession = false;
+  }
 }
 
 async function discardSession() {
@@ -4987,10 +5063,20 @@ function saveState() {
 
 // Immediate (non-debounced) save for contested actions like claiming a task,
 // where shrinking the write window reduces the chance two devices collide.
+// If called before the first cloud snapshot has arrived (hasLoadedFromFirestore
+// is false), we can't save yet — but we record that a save is needed, and
+// flush it immediately once the cloud loads. This covers the case where a
+// mobile browser (especially a WebView) kills and reloads the tab while the
+// player is mid-action.
+var saveNeededBeforeLoad = false;
 function saveStateNow() {
   if (applyingRemote) return;
   if (!firebaseConnected || !fbDocRef) return;
-  if (!hasLoadedFromFirestore) return;
+  if (!hasLoadedFromFirestore) {
+    // Can't save yet — queue it for when the cloud loads.
+    saveNeededBeforeLoad = true;
+    return;
+  }
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
   doSave();
 }
@@ -5079,6 +5165,10 @@ function subscribeGameDoc() {
       }
       fbDataExists = true;
       hasLoadedFromFirestore = true;   // we now hold the authoritative shared state
+      flushPendingSessions();          // recover any sessions submitted before first load
+      // Flush any saves that were queued before the cloud loaded (e.g. a task
+      // completion or session submit while the tab was still initialising).
+      if (saveNeededBeforeLoad) { saveNeededBeforeLoad = false; saveStateNow(); }
       // If this sync removed the logged-in user (deleted by an admin, or wiped
       // by a reset), don't let them keep playing into a void — log them out
       // with a clear message.
@@ -5138,6 +5228,8 @@ function directLoadFallback() {
       fbDataExists = false;
     }
     hasLoadedFromFirestore = true;
+    flushPendingSessions();
+    if (saveNeededBeforeLoad) { saveNeededBeforeLoad = false; saveStateNow(); }
     if (checkCurrentUserStillValid()) {
       if (state.currentUser || state.isGuest) _renderAll_inner();
       else { renderHeader(); updateCountdown(); }
